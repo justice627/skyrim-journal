@@ -4,6 +4,7 @@ import struct
 import zlib
 
 import lz4.frame
+import pytest
 
 from skyrim_journal.plugins import export
 
@@ -86,11 +87,16 @@ def test_full_export(tmp_path):
 
     j = run(tmp_path, ["--data", str(d)])
     meta = j.pop("_meta")
-    assert j["Master.esm:000800"] == {"edid": "MQ101", "name": "Unbound II", "type": "QUST"}  # overridden
+    assert j.pop("_perk_trees") == {} and meta["tool_version"] == "1.1.0"
+    # overridden; QUST entries carry the quest fields (none of the subrecords exist here)
+    assert j["Master.esm:000800"] == {"edid": "MQ101", "name": "Unbound II", "type": "QUST",
+                                      "objectives": 0, "complete_stages": [], "fail_stages": []}
     assert j["Master.esm:000801"] == {"edid": "IronSword", "name": "Iron Sword", "type": "WEAP"}
     assert j["Master.esm:000802"]["edid"] == "ArmorX"
     assert j["Master.esm:000802"]["name"] == "Caf\xe9"
-    assert j["Child.esp:000801"] == {"edid": "ChildQ", "type": "QUST"}
+    assert j["Child.esp:000801"] == {"edid": "ChildQ", "type": "QUST", "objectives": 0,
+                                     "complete_stages": [], "fail_stages": []}
+
     assert j["Tiny.esl:000ABC"]["name"] == "Gem"
     assert j["Loc.esp:000800"] == {"edid": "LocPerk", "name": "Hello", "type": "PERK"}
     assert j["NoStr.esp:000800"] == {"edid": "Lost", "type": "PERK"}
@@ -158,3 +164,127 @@ def build_bsa(folder, fname, payload, compressed):
     out += struct.pack("<QIIQ", 0, 1, 0, block_off + len(fn_blob))
     out += bytes([len(fold)]) + fold + struct.pack("<QII", 0, len(body), data_off) + fn_blob
     return out + body
+
+
+def u32(*v):
+    return struct.pack("<" + "I" * len(v), *v)
+
+
+def avif(fid, edid, name, perks, extra_pnam_zero=True):
+    """AVIF with a tree: one root group (PNAM 0) then one group per perk."""
+    def group(perk, idx):
+        return (sub(b"PNAM", u32(perk)) + sub(b"FNAM", u32(1)) + sub(b"XNAM", u32(2))
+                + sub(b"YNAM", u32(3)) + sub(b"HNAM", struct.pack("<f", 0.5))
+                + sub(b"VNAM", struct.pack("<f", 0.5)) + sub(b"SNAM", u32(fid))
+                + sub(b"CNAM", u32(idx + 1)) + sub(b"INAM", u32(idx)))
+    body = sub(b"EDID", z(edid)) + sub(b"FULL", z(name))
+    groups = ([0] if extra_pnam_zero and perks else []) + list(perks)
+    body += b"".join(group(p, i) for i, p in enumerate(groups))
+    return rec(b"AVIF", fid, body)
+
+
+def perk(fid, edid, name, nxt=0, data=(0, 0, 1, 1, 0)):
+    body = sub(b"EDID", z(edid)) + sub(b"FULL", z(name)) + sub(b"DATA", bytes(data))
+    if nxt:
+        body += sub(b"NNAM", u32(nxt))
+    return rec(b"PERK", fid, body)
+
+
+def test_perk_trees_overrides_and_chains(tmp_path):
+    d = tmp_path / "Data"
+    d.mkdir()
+    write(d / "Skyrim.esm", tes4(0x1) + grup(b"PERK", (
+        perk(0x000810, "Armsman1", "Armsman", nxt=0x000811, data=(0, 0, 2, 1, 0))
+        + perk(0x000811, "Armsman2", "Armsman", nxt=0x000812)
+        + perk(0x000812, "Armsman3", "Armsman")
+        + perk(0x000820, "Plumbing", "Plumbing", data=(0, 0, 1, 0, 1))))
+        + grup(b"AVIF", avif(0x00044C, "AVOneHanded", "One-handed", [0x000810, 0x000810])))
+    # overhaul: overrides the AVIF (perk ids relative to its masters: 0x00 = Skyrim.esm,
+    # 0x01 = the overhaul itself) and adds a perk of its own
+    write(d / "Overhaul.esp", tes4(0, ["Skyrim.esm"]) + grup(b"PERK", (
+        perk(0x01000800, "OvPerk", "Overhaul Perk", nxt=0x01000801)
+        + perk(0x01000801, "OvPerk2", "Overhaul Perk II")))
+        + grup(b"AVIF", avif(0x0000044C, "AVOneHanded", "One-handed",
+                             [0x01000800, 0x00000820])))
+    # a later plugin overriding the AVIF with an empty tree must not wipe the tree
+    write(d / "Cosmetic.esp", tes4(0, ["Skyrim.esm"]) + grup(
+        b"AVIF", rec(b"AVIF", 0x0000044C, sub(b"EDID", z("AVOneHanded"))
+                     + sub(b"FULL", z("One-Handed")))))
+    j = run(tmp_path, ["--data", str(d), "--load-order", str(write(tmp_path / "lo.txt", b"Skyrim.esm\nOverhaul.esp\nCosmetic.esp\n"))])
+    assert j["_perk_trees"] == {"Skyrim.esm:00044C": {
+        "skill": "AVOneHanded", "skill_name": "One-Handed",
+        "perks": ["Overhaul.esp:000800", "Skyrim.esm:000820"]}}
+    assert j["Skyrim.esm:000810"] == {"edid": "Armsman1", "name": "Armsman", "type": "PERK",
+                                      "playable": True, "hidden": False,
+                                      "next": "Skyrim.esm:000811"}
+    assert "next" not in j["Skyrim.esm:000812"]
+    assert j["Skyrim.esm:000820"]["playable"] is False and j["Skyrim.esm:000820"]["hidden"] is True
+    assert j["Overhaul.esp:000800"]["next"] == "Overhaul.esp:000801"
+
+    # without the overhaul the vanilla tree (duplicate PNAM collapsed, root 0 ignored) is kept
+    j = run(tmp_path, ["--data", str(d), "--load-order", str(write(tmp_path / "lo2.txt", b"Skyrim.esm\n"))])
+    assert j["_perk_trees"]["Skyrim.esm:00044C"]["perks"] == ["Skyrim.esm:000810"]
+    assert j["_perk_trees"]["Skyrim.esm:00044C"]["skill_name"] == "One-handed"
+
+
+def test_quest_fields(tmp_path):
+    d = tmp_path / "Data"
+    d.mkdir()
+
+    def qust(fid, edid, dnam, stages=(), objectives=0):
+        body = sub(b"EDID", z(edid)) + sub(b"FULL", z(edid)) + sub(b"DNAM", dnam)
+        for idx, qsdt in stages:
+            body += sub(b"INDX", struct.pack("<HBB", idx, 0, 0))
+            for fl in qsdt:
+                body += sub(b"QSDT", bytes([fl])) + sub(b"CNAM", z("log text"))
+        for i in range(objectives):
+            body += sub(b"QOBJ", struct.pack("<H", i)) + sub(b"NNAM", z("do it"))
+        return rec(b"QUST", fid, body)
+
+    dnam12 = struct.pack("<HBB", 1, 50, 5) + u32(0) + u32(8)          # Side Quest
+    dnam8 = struct.pack("<HBB", 1, 50, 5) + u32(1)                   # Main Quest (short form)
+    bad = struct.pack("<HBB", 1, 50, 5) + u32(0) + u32(99)           # implausible type
+    write(d / "Q.esp", tes4(0) + grup(b"QUST", (
+        qust(0x800, "SideQ", dnam12, [(10, [0]), (20, [0, 2]), (100, [1])], objectives=3)
+        + qust(0x801, "MainQ", dnam8, [(5, [])])
+        + qust(0x802, "OddQ", bad)
+        + qust(0x803, "NoDnam", b"")  # empty DNAM: no type
+    )))
+    j = run(tmp_path, ["--data", str(d)])
+    assert j["Q.esp:000800"] == {"edid": "SideQ", "name": "SideQ", "type": "QUST",
+                                 "quest_type": 8, "objectives": 3,
+                                 "complete_stages": [100], "fail_stages": [20]}
+    assert j["Q.esp:000801"]["quest_type"] == 1 and j["Q.esp:000801"]["objectives"] == 0
+    assert "quest_type" not in j["Q.esp:000802"] and "quest_type" not in j["Q.esp:000803"]
+
+
+def test_save_load_order(tmp_path, capsys):
+    from fixture_builder import build_save
+    d = tmp_path / "Data"
+    d.mkdir()
+
+    def q(edid):
+        return grup(b"QUST", rec(b"QUST", 0x000800, sub(b"EDID", z(edid)) + sub(b"FULL", z(edid))))
+    write(d / "Skyrim.esm", tes4(0x1) + q("Base"))
+    write(d / "Update.esm", tes4(0x1, ["Skyrim.esm"]) + q("Updated"))
+    write(d / "lightmod.ESL", tes4(0x200) + grup(
+        b"MISC", rec(b"MISC", 0x000ABC, sub(b"EDID", z("Gem")))))
+    write(d / "Inactive.esp", tes4(0, ["Skyrim.esm"]) + q("FromInactiveMod"))
+    ess = tmp_path / "s.ess"
+    ess.write_bytes(build_save())
+    j = run(tmp_path, ["--data", str(d), "--save", str(ess)])
+    assert j["Skyrim.esm:000800"]["edid"] == "Updated"            # not clobbered by Inactive.esp
+    assert j["lightmod.ESL:000ABC"]["edid"] == "Gem"              # matched case-insensitively
+    skipped = {s["plugin"].rsplit("/", 1)[-1]: s["reason"] for s in j["_meta"]["skipped"]}
+    assert skipped == {"Inactive.esp": "not in load order"}
+    assert j["_meta"]["plugin_count"] == 3
+
+    # without --save the inactive plugin wins the override
+    assert run(tmp_path, ["--data", str(d)])["Skyrim.esm:000800"]["edid"] == "FromInactiveMod"
+    # --save and --load-order are mutually exclusive; unreadable saves are reported
+    lo = write(tmp_path / "lo.txt", b"Skyrim.esm\n")
+    with pytest.raises(SystemExit):
+        export.main(["--data", str(d), "--save", str(ess), "--load-order", str(lo),
+                     "--out", str(tmp_path / "x.json")])
+    bad = write(tmp_path / "bad.ess", b"nope")
+    assert export.main(["--data", str(d), "--save", str(bad), "--out", str(tmp_path / "x.json")]) == 2

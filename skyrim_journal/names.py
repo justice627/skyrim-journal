@@ -5,6 +5,11 @@ The save stores form ids, not names. A names file is a JSON object mapping
 name is case-insensitive, the id may have any number of leading zeros) to
 ``{"edid": "...", "name": "...", "type": "QUST"}``. All three fields are optional; ``name`` is
 shown, falling back to ``edid``.
+
+Newer exports add optional fields: PERK ``playable``/``hidden``/``next`` (key of the next rank),
+QUST ``quest_type``/``objectives``/``complete_stages``/``fail_stages``, and a top-level
+``_perk_trees`` object (see ``NameBook.perk_trees``). Other keys starting with ``_`` are
+exporter metadata and are ignored.
 """
 from __future__ import annotations
 
@@ -21,6 +26,15 @@ class NameEntry:
     edid: str = ""
     name: str = ""
     type: str = ""
+    # PERK
+    playable: bool | None = None
+    hidden: bool | None = None
+    next: str | None = None
+    # QUST (None = the names file predates these fields)
+    quest_type: int | None = None
+    objectives: int | None = None
+    complete_stages: tuple[int, ...] | None = None
+    fail_stages: tuple[int, ...] | None = None
 
     @property
     def label(self) -> str:
@@ -55,14 +69,64 @@ def _entry(key: str, value: object) -> NameEntry:
     for f in ("edid", "name", "type"):
         if f in value and not isinstance(value[f], str):
             raise NamesFileError(f"entry {key!r}: field {f!r} must be a string")
-    return NameEntry(value.get("edid", ""), value.get("name", ""), value.get("type", ""))
+    extra: dict[str, object] = {}
+    for f in ("playable", "hidden"):
+        if f in value:
+            if not isinstance(value[f], bool):
+                raise NamesFileError(f"entry {key!r}: field {f!r} must be true or false")
+            extra[f] = value[f]
+    if "next" in value:
+        if not isinstance(value["next"], str):
+            raise NamesFileError(f"entry {key!r}: field 'next' must be a string")
+        extra["next"] = value["next"]
+    for f in ("quest_type", "objectives"):
+        if f in value:
+            if not isinstance(value[f], int) or isinstance(value[f], bool):
+                raise NamesFileError(f"entry {key!r}: field {f!r} must be an integer")
+            extra[f] = value[f]
+    for f in ("complete_stages", "fail_stages"):
+        if f in value:
+            extra[f] = _int_list(key, f, value[f])
+    return NameEntry(value.get("edid", ""), value.get("name", ""), value.get("type", ""), **extra)
+
+
+@dataclass(frozen=True)
+class PerkTree:
+    key: str
+    skill: str          # AVIF editor id
+    skill_name: str     # AVIF display name (may be empty)
+    perks: tuple[str, ...]
+
+
+def _int_list(key: str, f: str, v: object) -> tuple[int, ...]:
+    if not isinstance(v, list) or not all(isinstance(x, int) and not isinstance(x, bool) for x in v):
+        raise NamesFileError(f"entry {key!r}: field {f!r} must be a list of integers")
+    return tuple(v)
+
+
+def _perk_trees(raw: object) -> dict[str, PerkTree]:
+    if not isinstance(raw, dict):
+        raise NamesFileError("'_perk_trees' must be an object")
+    out = {}
+    for k, v in raw.items():
+        if not isinstance(v, dict) or not isinstance(v.get("perks"), list) \
+                or not all(isinstance(p, str) for p in v["perks"]):
+            raise NamesFileError(f"'_perk_trees' entry {k!r}: expected an object with a 'perks' "
+                                 "list of keys")
+        out[k] = PerkTree(k, str(v.get("skill") or ""), str(v.get("skill_name") or ""),
+                          tuple(v["perks"]))
+    return out
 
 
 class NameBook:
     def __init__(self, user: dict[str, object] | None = None):
         self._by_key: dict[tuple[str, int], NameEntry] = {}
+        self._trees: dict[str, PerkTree] = {}
         for src in (BUILTIN, user or {}):          # user entries override built-ins
             for k, v in src.items():
+                if k == "_perk_trees":
+                    self._trees = _perk_trees(v)
+                    continue
                 if k.startswith("_"):              # exporter metadata, e.g. "_meta"
                     continue
                 nk = normalize_key(k)
@@ -70,6 +134,14 @@ class NameBook:
                     raise NamesFileError(f"bad key {k!r}: expected '<Plugin>:<hex id>'")
                 self._by_key[nk] = _entry(k, v)
         self.user_entries = len(user or {})
+
+    @property
+    def has_perk_trees(self) -> bool:
+        return bool(self._trees)
+
+    def perk_trees(self) -> list[PerkTree]:
+        """Skill perk trees from the exporter's ``_perk_trees`` (empty if absent)."""
+        return list(self._trees.values())
 
     @classmethod
     def load(cls, path: str | None) -> "NameBook":
@@ -85,6 +157,11 @@ class NameBook:
         if not isinstance(data, dict):
             raise NamesFileError("names file must be a JSON object")
         return cls(data)
+
+    def entry(self, key: str) -> NameEntry | None:
+        """Entry for a ``plugin:id`` key even if it has no name or edid."""
+        nk = normalize_key(key) if key else None
+        return self._by_key.get(nk) if nk else None
 
     def lookup(self, described: str | None) -> NameEntry | None:
         """``described`` is a ``plugin:id`` string as rendered by describe_form_id."""

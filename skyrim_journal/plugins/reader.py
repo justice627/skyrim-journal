@@ -17,6 +17,7 @@ RECORD_TYPES = frozenset(
     "WOOP MGEF ENCH FACT RACE NPC_ LCTN CELL WRLD AVIF GLOB".split()
 )
 _WANTED_BYTES = frozenset(t.encode("ascii") for t in RECORD_TYPES)
+_EXTRA_TYPES = frozenset((b"PERK", b"AVIF", b"QUST"))
 
 FLAG_ESM = 0x1
 FLAG_DELETED = 0x20
@@ -39,6 +40,11 @@ class RawRecord:
     form_id: int
     edid: str | None
     full: str | int | None  # int = localized string id
+    # Type-specific data (raw form ids as stored, i.e. relative to the plugin's own masters):
+    #   PERK: playable, hidden (bool), next (int form id)
+    #   AVIF: perks (list of int form ids from the skill tree)
+    #   QUST: quest_type (int), objectives (int), complete_stages, fail_stages (list of int)
+    extra: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -115,6 +121,54 @@ def _extract(buf, localized: bool):
     return edid, full
 
 
+def _u32(data) -> int | None:
+    return struct.unpack_from("<I", bytes(data), 0)[0] if len(data) == 4 else None
+
+
+def _extract_extra(rtype: bytes, buf) -> dict:
+    """Perk, skill-tree and quest details. Defensive: anything unexpected is simply left out."""
+    out: dict = {}
+    if rtype == b"PERK":
+        for t, data in _iter_subrecords(buf):
+            if t == b"DATA" and len(data) >= 5:
+                out["playable"], out["hidden"] = bool(data[3]), bool(data[4])
+            elif t == b"NNAM":
+                nxt = _u32(data)
+                if nxt:
+                    out["next"] = nxt
+    elif rtype == b"AVIF":
+        perks = []
+        for t, data in _iter_subrecords(buf):
+            if t == b"PNAM":
+                fid = _u32(data)
+                if fid:
+                    perks.append(fid)
+        out["perks"] = perks
+    elif rtype == b"QUST":
+        objectives, stage = 0, None
+        complete, fail = set(), set()
+        for t, data in _iter_subrecords(buf):
+            if t == b"DNAM":
+                # flags u16, priority u8, formVersion u8, [4 unknown bytes], questType u32
+                off = 8 if len(data) >= 12 else 4 if len(data) == 8 else None
+                if off is not None:
+                    qt = struct.unpack_from("<I", bytes(data), off)[0]
+                    if qt <= 11:
+                        out["quest_type"] = qt
+            elif t == b"INDX" and len(data) >= 2:
+                stage = struct.unpack_from("<H", bytes(data), 0)[0]
+            elif t == b"QSDT" and len(data) >= 1 and stage is not None:
+                if data[0] & 0x1:
+                    complete.add(stage)
+                if data[0] & 0x2:
+                    fail.add(stage)
+            elif t == b"QOBJ":
+                objectives += 1
+        out.update(objectives=objectives, complete_stages=sorted(complete),
+                   fail_stages=sorted(fail))
+    return out
+
+
 def _record_data(mm, pos, size, flags):
     data = mm[pos:pos + size]
     if flags & FLAG_COMPRESSED:
@@ -154,7 +208,11 @@ def _walk(mm, start, end, out, localized, size_total):
             data = _record_data(mm, pos + 24, size, a)
             edid, full = _extract(data, localized)
             if edid is not None or full is not None:
-                out.append(RawRecord(rtype.decode("ascii"), b, edid, full))
+                try:
+                    extra = _extract_extra(rtype, data) if rtype in _EXTRA_TYPES else {}
+                except (PluginError, struct.error):
+                    extra = {}
+                out.append(RawRecord(rtype.decode("ascii"), b, edid, full, extra))
         pos += 24 + size
 
 
