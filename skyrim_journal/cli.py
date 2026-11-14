@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
+from .names import NameBook, NamesFileError
 from .parser import SaveParseError, parse_save
+from .sheet import build_sheet
 
 
 def _render(d: dict) -> str:
@@ -78,6 +81,11 @@ def main(argv: list[str] | None = None) -> int:
     ins = sub.add_parser("inspect", help="Print the structure of a save (read-only)")
     ins.add_argument("--save", required=True, help="path to .ess file")
     ins.add_argument("--json", action="store_true", help="machine-readable output")
+    sh = sub.add_parser("sheet", help="Write a Markdown character snapshot (read-only on the save)")
+    sh.add_argument("--save", required=True, help="path to .ess file")
+    sh.add_argument("--out", help="write the Markdown here instead of stdout")
+    sh.add_argument("--names", help="JSON file mapping '<Plugin>:<hex id>' to "
+                                    "{edid, name, type}")
     args = ap.parse_args(argv)
     try:
         with open(args.save, "rb") as f:  # read-only
@@ -86,9 +94,31 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: cannot read {args.save}: {e}", file=sys.stderr)
         return 2
     try:
-        d = parse_save(data).to_dict()
+        parsed = parse_save(data)
+        d = parsed.to_dict() if args.cmd == "inspect" else None
     except SaveParseError as e:
         print(f"error ({type(e).__name__}): {e}", file=sys.stderr)
         return 1
+    if args.cmd == "sheet":
+        return _sheet(args, parsed)
     print(json.dumps(d, indent=2) if args.json else _render(d))
+    return 0
+
+
+def _sheet(args, parsed) -> int:
+    try:
+        names = NameBook.load(args.names)
+    except NamesFileError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    text = build_sheet(parsed, os.path.basename(args.save), names)
+    if not args.out:
+        sys.stdout.write(text)
+        return 0
+    try:
+        with open(args.out, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+    except OSError as e:
+        print(f"error: cannot write {args.out}: {e}", file=sys.stderr)
+        return 2
     return 0
