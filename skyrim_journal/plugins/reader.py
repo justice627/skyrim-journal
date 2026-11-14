@@ -44,7 +44,8 @@ class RawRecord:
     #   PERK: playable, hidden (bool), next (int form id)
     #   AVIF: perks (list of int form ids from the skill tree)
     #   QUST: quest_type (int), objectives (int), complete_stages, fail_stages (list of int),
-    #         objective_text (objective index -> str, or int string id when localized)
+    #         objective_text (objective index -> str, or int string id when localized),
+    #         aliases (alias id -> (alias name, "ref" | "loc"))
     extra: dict = field(default_factory=dict)
 
 
@@ -149,6 +150,8 @@ def _extract_extra(rtype: bytes, buf, localized: bool = False) -> dict:
         objectives, stage, cur_obj = 0, None, None
         complete, fail = set(), set()
         texts: dict[int, str | int] = {}
+        aliases: dict[int, tuple[str, str]] = {}
+        cur_alias: tuple[int, str] | None = None     # (id, kind) between ALST/ALLS and ALED
         for t, data in _iter_subrecords(buf):
             if t == b"DNAM":
                 # flags u16, priority u8, formVersion u8, [4 unknown bytes], questType u32
@@ -179,8 +182,19 @@ def _extract_extra(rtype: bytes, buf, localized: bool = False) -> dict:
                 cur_obj = None
             elif t in (b"ALST", b"ALLS", b"ANAM"):
                 cur_obj = None          # aliases start: later NNAMs are not objective text
+            if t in (b"ALST", b"ALLS"):
+                aid = _u32(data)
+                cur_alias = (aid, "ref" if t == b"ALST" else "loc") if aid is not None else None
+            elif t == b"ALID" and cur_alias is not None:
+                name = decode_text(bytes(data))
+                if name:
+                    aliases[cur_alias[0]] = (name, cur_alias[1])
+            elif t == b"ALED":
+                cur_alias = None
         if texts:
             out["objective_text"] = texts
+        if aliases:
+            out["aliases"] = aliases
         out.update(objectives=objectives, complete_stages=sorted(complete),
                    fail_stages=sorted(fail))
     return out

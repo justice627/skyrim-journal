@@ -7,8 +7,9 @@ the stage was reached.
 
 Empirically established on the same save (see tests): the first 2 bytes are a little-endian u16
 of runtime quest flags (present whenever changeFlag 0x2 is set). Bit 0x0002 is "completed";
-0x0040 is "failed" (never set in the sample, so unverified); 0x2000 is set exactly on quests
-that have a displayed objective. When changeFlag 0x20000000 is set, a second list follows the
+0x0040 is "failed" (never set in the sample, so unverified); 0x2000 is set on every quest
+with a displayed objective but also on some without one (a mod's controller quest), so it is not
+used to decide that an objective is displayed. When changeFlag 0x20000000 is set, a second list follows the
 stage list: vsval count and ``count`` x (u32 objective index, u32 state), state 0 dormant,
 1 displayed, 2 completed, 3 completed and displayed, 4 failed, 5 failed and displayed (only
 1 and 3 occur in the sample; 4 occurs once). Bytes after that belong to other change flags
@@ -49,8 +50,9 @@ class QuestProgress:
 
     @property
     def has_displayed_objective(self) -> bool:
-        return any(s == OBJECTIVE_DISPLAYED for _, s in self.objectives) or bool(
-            self.flags is not None and self.flags & FLAG_OBJECTIVE_DISPLAYED)
+        """The save records at least one objective in state 1 (displayed). Quest flag 0x2000
+        alone does not count."""
+        return any(s == OBJECTIVE_DISPLAYED for _, s in self.objectives)
 
     @property
     def reached(self) -> list[int]:

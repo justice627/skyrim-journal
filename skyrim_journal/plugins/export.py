@@ -19,7 +19,7 @@ from ..parser import SaveParseError
 from .reader import PluginError, scan_plugin
 from .strings import DirIndex, StringsFinder
 
-TOOL_VERSION = "1.2.0"
+TOOL_VERSION = "1.3.0"
 BASE_MASTERS = ["Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm",
                 "Dragonborn.esm"]
 PLUGIN_EXTS = (".esm", ".esp", ".esl")
@@ -213,6 +213,9 @@ def build(data_dirs, load_order=None, language="english", log=None):
                             texts[str(idx)] = t
                     if texts:
                         entry["objective_text"] = texts
+                    if ex.get("aliases"):
+                        entry["aliases"] = {str(i): {"name": n, "kind": k}
+                                            for i, (n, k) in sorted(ex["aliases"].items())}
                 elif r.rtype == "AVIF" and ex.get("perks"):
                     local_trees[rkey] = list(dict.fromkeys(resolve(f) for f in ex["perks"]))
                 local[rkey] = entry

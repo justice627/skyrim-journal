@@ -87,7 +87,7 @@ def test_full_export(tmp_path):
 
     j = run(tmp_path, ["--data", str(d)])
     meta = j.pop("_meta")
-    assert j.pop("_perk_trees") == {} and meta["tool_version"] == "1.2.0"
+    assert j.pop("_perk_trees") == {} and meta["tool_version"] == "1.3.0"
     # overridden; QUST entries carry the quest fields (none of the subrecords exist here)
     assert j["Master.esm:000800"] == {"edid": "MQ101", "name": "Unbound II", "type": "QUST",
                                       "objectives": 0, "complete_stages": [], "fail_stages": []}
@@ -327,3 +327,26 @@ def test_objective_text_localized_with_fallback_tables(tmp_path):
     j = run(tmp_path, ["--data", str(d)])
     assert "objective_text" not in j["Loc.esp:000800"]
     assert j["_meta"]["localized_plugins_without_strings"] == ["Loc.esp"]
+
+
+def test_quest_aliases_exported(tmp_path):
+    d = tmp_path / "Data"
+    d.mkdir()
+    body = (sub(b"EDID", z("AQ")) + sub(b"FULL", z("Alias Quest"))
+            + sub(b"QOBJ", struct.pack("<H", 10)) + sub(b"NNAM", z("Kill <Alias=Boss>"))
+            + sub(b"ALST", u32(3)) + sub(b"ALID", z("QuestGiver")) + sub(b"FNAM", u32(0))
+            + sub(b"ALED", b"")
+            + sub(b"ALLS", u32(7)) + sub(b"ALID", z("BountyLocation")) + sub(b"ALED", b"")
+            + sub(b"ALST", u32(9)) + sub(b"FNAM", u32(0)) + sub(b"ALED", b"")     # nameless: skipped
+            + sub(b"ALID", z("Stray"))                                           # outside an alias
+            + sub(b"ALST", u32(12)) + sub(b"ALID", z("Boss")) + sub(b"ALED", b""))
+    plain = sub(b"EDID", z("NoAliases")) + sub(b"FULL", z("Plain"))
+    write(d / "A.esp", tes4(0) + grup(b"QUST", rec(b"QUST", 0x800, body, compress=True)
+                                      + rec(b"QUST", 0x801, plain)))
+    j = run(tmp_path, ["--data", str(d)])
+    assert j["A.esp:000800"]["aliases"] == {"3": {"name": "QuestGiver", "kind": "ref"},
+                                            "7": {"name": "BountyLocation", "kind": "loc"},
+                                            "12": {"name": "Boss", "kind": "ref"}}
+    assert j["A.esp:000800"]["objective_text"] == {"10": "Kill <Alias=Boss>"}
+    assert "aliases" not in j["A.esp:000801"]
+    assert j["_meta"]["tool_version"] == "1.3.0"

@@ -155,7 +155,7 @@ def test_sheet_content(parsed):
     assert "289 quests" in text and "127 have a stage" in text
     assert ("| `Skyrim.esm:01DBFC` | 100 | 10, 20, 30, 40, 41, 42, 60, 70, 75, 80, 100 | save flag |"
             in text)
-    assert "#### Completed (6)" in text and "#### Active (8)" in text   # no names: one Active table
+    assert "#### Completed (6)" in text and "#### Active (7)" in text   # no names: one Active table
     assert "Skipped by the alternate start: `Skyrim.esm:03372B`" in text
     assert "needs a names file" in text and "Dragons enabled" not in text
     assert "Adamant (`Adamant.esp`" in text and "Skyrim Unbound (`Skyrim Unbound.esp`" in text
@@ -183,7 +183,7 @@ def test_cli_sheet_stdout_out_and_names(tmp_path, capsys):
     assert capsys.readouterr().out == ""
     text = dest.read_text(encoding="utf-8")
     assert "| A Named Quest | 100 |" in text and "`Skyrim.esm:01DBFC`" not in text
-    assert "#### Completed (6)" in text and "#### Active (8)" in text   # save evidence, no types
+    assert "#### Completed (6)" in text and "#### Active (7)" in text   # save evidence, no types
     assert sorted(os.listdir(save_dir)) == before   # nothing written next to the save
 
 
@@ -329,22 +329,25 @@ def test_quest_section_rules_with_quest_types():
     assert "Failed (2)" in k and any("Failed Quest" in r and r.endswith("failing stage 90 |") for r in failed)
     assert any("Fail By Flag" in r and r.endswith("save flag |") for r in failed)
     k, act = rows("Active quests")
-    assert "Active quests (3)" in k
+    assert "Active quests (2)" in k
     assert any(r.startswith("| Shown Quest | Side Quest | 10 | 10 | Find the gem (objective 10) |") for r in act)
     assert any(r.startswith("| Half Done |") and r.endswith("objective 20 |") for r in act)
-    assert any(r.startswith("| Flag Shown |") and r.endswith("flag only |") for r in act)
+    assert not any("Flag Shown" in r for r in act)       # quest flag 0x2000 alone is not enough
     k, misc = rows("Miscellaneous objectives")
-    assert "Miscellaneous objectives (2)" in k      # type Misc, and the unnamed quest
+    assert "Miscellaneous objectives (1)" in k      # type Misc; the unnamed flag-only quest is out
     assert any(r.startswith("| Misc Shown |") and r.endswith("objective 5 |") for r in misc)
-    assert any("NoNameShown" in r for r in misc)
+    assert not any("NoNameShown" in r for r in misc)
     k, oth = rows("Other started")
     assert "Other started quests (3)" in k
     assert any(r.startswith("| Main Quest B |") for r in oth)          # beyond its lowest stage
     assert any(r.startswith("| Went Further |") for r in oth)
     assert any(r.startswith("| Lost Objective |") and r.endswith("10: failed |") for r in oth)
     k, _ = rows("Background")
-    assert "Background and radiant quests (2)" in k
+    assert "Background and radiant quests (4)" in k
     assert "Waiting Job" in text and "Dialogue" in text
+    bg = text.split("Background and radiant quests (4)")[1]
+    assert "Flag Shown" in bg and "NoNameShown" in bg  # controller-style quests fall through
+    assert "flag 0x2000 alone does not count" in text
     assert "Unstarted" not in text and "guessed" not in text
     assert "Skipped by the alternate start" not in text
 
@@ -361,9 +364,9 @@ def test_quest_section_without_quest_types_one_active_table():
     text = "\n".join(_quest_section(quests, _body(), nb, []))
     assert "#### Completed (3)" in text and "| Named done | 200 | 200 | save flag |" in text
     assert "| Named, objectives only | 200 | 200 | all objectives completed |" in text
-    assert "#### Active (2)" in text and "| Named shown | 10 | 10 | objective 10 |" in text
-    assert "| OnlyEdid |" in text and "Miscellaneous objectives" not in text and "Type" not in text
-    assert "Background and radiant quests (1)" in text and "Other started quests (0)" in text
+    assert "#### Active (1)" in text and "| Named shown | 10 | 10 | objective 10 |" in text
+    assert "OnlyEdid" in text.split("Background and radiant")[1] and "Miscellaneous objectives" not in text and "Type" not in text
+    assert "Background and radiant quests (2)" in text and "Other started quests (0)" in text
     assert "no quest types" in text
 
 
@@ -429,7 +432,7 @@ def test_sample_flag_findings(parsed):
     assert 0x1DBFC in done and len(done) == 6                 # Rise in the East among them
     assert not any(q.failed for q in qs.values())             # 0x40 never set: unverified
     shown = {q.form_id for q in qs.values() if q.has_displayed_objective}
-    assert len(shown) == 8 and not shown & done
+    assert len(shown) == 7 and not shown & done   # 0x2000 alone does not count
     assert sum(1 for q in qs.values() for _, s in q.objectives if s == 3) == 16
 
 

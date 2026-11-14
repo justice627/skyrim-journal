@@ -8,7 +8,8 @@ shown, falling back to ``edid``.
 
 Newer exports add optional fields: PERK ``playable``/``hidden``/``next`` (key of the next rank),
 QUST ``quest_type``/``objectives``/``complete_stages``/``fail_stages`` (and, from exporter 1.2,
-``objective_text``: ``{"<objective index>": "<display text>"}``), and a top-level
+``objective_text``: ``{"<objective index>": "<display text>"}``; from exporter 1.3,
+``aliases``: ``{"<alias id>": {"name": "<alias name>", "kind": "ref" | "loc"}}``), and a top-level
 ``_perk_trees`` object (see ``NameBook.perk_trees``). Other keys starting with ``_`` are
 exporter metadata and are ignored.
 """
@@ -37,6 +38,7 @@ class NameEntry:
     complete_stages: tuple[int, ...] | None = None
     fail_stages: tuple[int, ...] | None = None
     objective_text: dict[int, str] | None = field(default=None, compare=False)
+    aliases: dict[int, tuple[str, str]] | None = field(default=None, compare=False)  # id -> (name, kind)
 
     @property
     def label(self) -> str:
@@ -91,6 +93,8 @@ def _entry(key: str, value: object) -> NameEntry:
             extra[f] = _int_list(key, f, value[f])
     if "objective_text" in value:
         extra["objective_text"] = _objective_text(key, value["objective_text"])
+    if "aliases" in value:
+        extra["aliases"] = _aliases(key, value["aliases"])
     return NameEntry(value.get("edid", ""), value.get("name", ""), value.get("type", ""), **extra)
 
 
@@ -111,6 +115,23 @@ def _objective_text(key: str, v: object) -> dict[int, str]:
     except ValueError:
         raise NamesFileError(f"entry {key!r}: field 'objective_text' has a non-numeric "
                              "objective index") from None
+
+
+def _aliases(key: str, v: object) -> dict[int, tuple[str, str]]:
+    bad = NamesFileError(f"entry {key!r}: field 'aliases' must map alias ids to objects with a "
+                         "'name' string and a 'kind'")
+    if not isinstance(v, dict):
+        raise bad
+    out = {}
+    for i, a in v.items():
+        if not isinstance(a, dict) or not isinstance(a.get("name"), str) \
+                or not isinstance(a.get("kind", ""), str):
+            raise bad
+        try:
+            out[int(i)] = (a["name"], a.get("kind", ""))
+        except ValueError:
+            raise NamesFileError(f"entry {key!r}: field 'aliases' has a non-numeric alias id") from None
+    return out
 
 
 def _int_list(key: str, f: str, v: object) -> tuple[int, ...]:

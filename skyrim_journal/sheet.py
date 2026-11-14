@@ -10,8 +10,10 @@ from .parser import ParsedSave
 from .parser.globaldata import (KNOWN_GLOBALS, parse_global_variables, parse_misc_stats,
                                 parse_player_location)
 from .parser.playerstate import SKILL_NAMES, PlayerState, parse_player_state
+from .parser.questtext import QuestInstances, parse_quest_instances
 from .parser.quests import QuestProgress, parse_quests
 from .parser.refs import describe, describe_form_id
+from .texttags import render_tags
 
 SEX = {0: "Male", 1: "Female"}
 # Substring (lower-case) -> description, matched against plugin file names.
@@ -235,8 +237,12 @@ OBJECTIVE_STATES = {0: "dormant", 1: "displayed", 2: "completed", 3: "completed"
                     5: "failed, displayed"}
 
 
-def _quest_section(quests: list[QuestProgress], b, names: NameBook, stats) -> list[str]:
+def _quest_section(quests: list[QuestProgress], b, names: NameBook, stats,
+                   instances: dict[int, QuestInstances] | None = None,
+                   gv: dict[int, float] | None = None) -> list[str]:
     label = names.label
+    instances = instances or {}
+    gv_by_key = {k: v for fid, v in (gv or {}).items() if (k := normalize_key(describe(b, fid) or ""))}
     out: list[str] = []
     qstats = [s for s in stats if s.category_name == "Quest"]
     nonzero = [f"{s.name} {s.value}" for s in qstats if s.value]
@@ -286,23 +292,61 @@ def _quest_section(quests: list[QuestProgress], b, names: NameBook, stats) -> li
         method = ("Status comes from the save only: completed = quest flag 0x2, a reached stage "
                   "the names file marks as completing, or objectives recorded with every one "
                   "completed; failed = quest flag 0x40 or a reached failing stage; active = not "
-                  "completed or failed, with an objective displayed (objective state 1 or quest "
-                  "flag 0x2000). Miscellaneous objectives are active quests of type Misc or "
+                  "completed or failed, with at least one objective recorded in the displayed "
+                  "state (objective state 1; quest flag 0x2000 alone does not count, so a mod's "
+                  "controller quest stays in the background list). Miscellaneous objectives are active quests of type Misc or "
                   "without a display name.")
     else:
         method = ("The names file has no quest types (exported by an older version, or no names "
                   "file), so active quests are not split by type. Completed = quest flag 0x2, a "
                   "completing stage in the names file, or objectives recorded with every one "
                   "completed; failed = quest flag 0x40 or a failing stage; active = not completed "
-                  "or failed, with an objective displayed (objective state 1 or quest flag 0x2000).")
+                  "or failed, with at least one objective recorded in the displayed state (objective "
+                  "state 1; quest flag 0x2000 alone does not count).")
     out += [method, ""]
+    out += ["Tags in objective text: `<Global=Name>` is replaced by the global's current value "
+            "from the save's global variables (for a global the save does not list, the value "
+            "stored with the quest's text data). `<Alias=Name>`, `<Alias.ShortName=Name>` and "
+            "`<Alias.Name=Name>` are replaced by the display name of the form the save's quest "
+            "text data holds for that alias, but only when the names file gives the quest's alias "
+            "ids (exporter version 1.3 or later), the save has one value for the alias, and that "
+            "form has a name. ShortName is shown as the full display name. Anything else is "
+            "shown as `[Name]`; other kinds of tag are left as they are.", ""]
+
+    def _global_by_edid(q, edid):
+        keys = [(p, i) for p, i in names.find_by_edid(edid, "GLOB")]
+        for k in keys:
+            if k in gv_by_key:
+                return gv_by_key[k]
+        ins = instances.get(q.form_id)
+        if ins:
+            snap = {normalize_key(describe(b, f) or ""): v for f, v in ins.global_snapshots().items()}
+            for k in keys:
+                if k in snap:
+                    return snap[k]
+        return None
+
+    def _alias_text(q, e, name):
+        ins = instances.get(q.form_id)
+        if not (e and e.aliases and ins):
+            return None
+        ids = [i for i, (n, _) in e.aliases.items() if n.lower() == name.lower()]
+        if len(ids) != 1:
+            return None
+        vals = ins.alias_values(ids[0])
+        if len(vals) != 1:
+            return None
+        hit = names.lookup(describe(b, next(iter(vals))))
+        return hit.name or None if hit else None
+
+    def objective_text(q, e, i, text):
+        return render_tags(text, lambda n: _alias_text(q, e, n), lambda n: _global_by_edid(q, n))
 
     def objective_cell(q, e):
         shown = [i for i, st in q.objectives if st == 1]
-        if not shown:
-            return "flag only"
         txt = (e.objective_text if e and e.objective_text else {})
-        return "; ".join(f"{txt[i]} (objective {i})" if i in txt else f"objective {i}" for i in shown)
+        return "; ".join(f"{objective_text(q, e, i, txt[i])} (objective {i})" if i in txt
+                         else f"objective {i}" for i in shown)
 
     def obj_states(q):
         return ", ".join(f"{i}: {OBJECTIVE_STATES.get(st, st)}" for i, st in q.objectives)
@@ -507,7 +551,8 @@ def build_sheet(parsed: ParsedSave, save_file_name: str, names: NameBook | None 
             L += ["", "</details>", ""]
 
     # --- Quests -----------------------------------------------------------------------
-    L += ["### Quests", ""] + _quest_section(quests, b, names, stats)
+    inst = parse_quest_instances(b, ctype).by_form
+    L += ["### Quests", ""] + _quest_section(quests, b, names, stats, inst, gv_all)
 
     # --- Activity ---------------------------------------------------------------------
     L += ["### Activity", ""]
@@ -539,7 +584,8 @@ def build_sheet(parsed: ParsedSave, save_file_name: str, names: NameBook | None 
                                         "; which perks the player chose needs a names file "
                                         "with perk trees"),
             "Journal entry (stage log) text of quests; objective text needs a names file "
-            "exported by version 1.2 or later",
+            "exported by version 1.2 or later, and filling its alias tags one exported by "
+            "version 1.3 or later",
             "Spells, shouts and dragon souls known; magic favorites",
             "Equipment slots, enchantments, tempering and weights of items",
             "Followers, houses, horses and map discovery",
