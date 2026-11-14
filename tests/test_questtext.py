@@ -245,13 +245,13 @@ def test_sample_alias_targets_resolve_to_sensible_records(parsed):
 
 
 @needs_sample
-def test_sample_sheet_has_globals_filled_and_aliases_neutral():
+def test_sample_sheet_has_globals_and_aliases_filled():
     if not os.path.exists(NAMES_PATH):
         pytest.skip("no names.json present")
     from skyrim_journal.sheet import build_sheet
     text = build_sheet(parse_save(open(SAMPLES[0], "rb").read()), "x.ess", NameBook.load(NAMES_PATH))
-    assert "Collect [Pelt]s for [QuestGiver] (0/29)" in text
-    assert "Find [QuestItem] inside [Dungeon]" in text
-    assert "Kill the bandit leader located at [BountyLocation]" in text
+    assert "Collect Bear Pelts for Jenassa (0/29)" in text
+    assert "Find Shahvee's Amulet of Zenithar inside Winter War" in text
+    assert "Kill the bandit leader located at Lost Knife Hideout" in text
     assert "| Skyrim Unbound |" not in text.split("#### Active quests")[1].split("<details>")[0]
     assert "Skyrim Unbound" in text.split("Background and radiant quests")[1]
