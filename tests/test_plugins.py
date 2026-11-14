@@ -87,7 +87,7 @@ def test_full_export(tmp_path):
 
     j = run(tmp_path, ["--data", str(d)])
     meta = j.pop("_meta")
-    assert j.pop("_perk_trees") == {} and meta["tool_version"] == "1.1.0"
+    assert j.pop("_perk_trees") == {} and meta["tool_version"] == "1.2.0"
     # overridden; QUST entries carry the quest fields (none of the subrecords exist here)
     assert j["Master.esm:000800"] == {"edid": "MQ101", "name": "Unbound II", "type": "QUST",
                                       "objectives": 0, "complete_stages": [], "fail_stages": []}
@@ -253,7 +253,8 @@ def test_quest_fields(tmp_path):
     j = run(tmp_path, ["--data", str(d)])
     assert j["Q.esp:000800"] == {"edid": "SideQ", "name": "SideQ", "type": "QUST",
                                  "quest_type": 8, "objectives": 3,
-                                 "complete_stages": [100], "fail_stages": [20]}
+                                 "complete_stages": [100], "fail_stages": [20],
+                                 "objective_text": {"0": "do it", "1": "do it", "2": "do it"}}
     assert j["Q.esp:000801"]["quest_type"] == 1 and j["Q.esp:000801"]["objectives"] == 0
     assert "quest_type" not in j["Q.esp:000802"] and "quest_type" not in j["Q.esp:000803"]
 
@@ -288,3 +289,41 @@ def test_save_load_order(tmp_path, capsys):
                      "--out", str(tmp_path / "x.json")])
     bad = write(tmp_path / "bad.ess", b"nope")
     assert export.main(["--data", str(d), "--save", str(bad), "--out", str(tmp_path / "x.json")]) == 2
+
+
+def test_objective_text_localized_with_fallback_tables(tmp_path):
+    d = tmp_path / "Data"
+    d.mkdir()
+
+    def qobj(i, text):
+        return sub(b"QOBJ", struct.pack("<H", i)) + sub(b"FNAM", u32(0)) + sub(b"NNAM", text)
+
+    body = (sub(b"EDID", z("LQ")) + sub(b"FULL", u32(1))
+            + sub(b"INDX", struct.pack("<HBB", 10, 0, 0)) + sub(b"CNAM", u32(99))   # stage log, no NNAM
+            + qobj(10, u32(2)) + qobj(20, u32(3)) + qobj(30, u32(404)) + qobj(40, b"\x01\x02"))
+    write(d / "Loc.esp", tes4(0x80) + grup(b"QUST", rec(b"QUST", 0x800, body)))
+    (d / "Strings").mkdir()
+
+    def table(entries, prefixed):
+        blob, offs = b"", []
+        for sid, t in entries:
+            offs.append((sid, len(blob)))
+            blob += (struct.pack("<I", len(t) + 1) if prefixed else b"") + z(t)
+        return (struct.pack("<II", len(entries), len(blob))
+                + b"".join(struct.pack("<II", *o) for o in offs) + blob)
+
+    write(d / "Strings" / "Loc_english.STRINGS", table([(1, "Quest"), (2, "Find it")], False))
+    write(d / "Strings" / "Loc_english.DLSTRINGS", table([(3, "Bring it back")], True))
+    j = run(tmp_path, ["--data", str(d)])
+    q = j["Loc.esp:000800"]
+    assert q["name"] == "Quest" and q["objectives"] == 4
+    # 10 from STRINGS, 20 from DLSTRINGS, 30 unresolvable and 40 (bad length) left out
+    assert q["objective_text"] == {"10": "Find it", "20": "Bring it back"}
+    assert j["_meta"]["localized_plugins_without_strings"] == []
+
+    # a localized plugin without any strings table: names stay absent, nothing crashes
+    (d / "Strings" / "Loc_english.STRINGS").unlink()
+    (d / "Strings" / "Loc_english.DLSTRINGS").unlink()
+    j = run(tmp_path, ["--data", str(d)])
+    assert "objective_text" not in j["Loc.esp:000800"]
+    assert j["_meta"]["localized_plugins_without_strings"] == ["Loc.esp"]

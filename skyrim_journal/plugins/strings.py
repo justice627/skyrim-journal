@@ -11,8 +11,10 @@ class StringsError(Exception):
     pass
 
 
-def parse_strings(data: bytes) -> dict[int, str]:
-    """Parse a .STRINGS file (zstring entries) into id -> text."""
+def parse_strings(data: bytes, length_prefixed: bool = False) -> dict[int, str]:
+    """Parse a .STRINGS file (zstring entries) into id -> text. ``.DLSTRINGS`` and
+    ``.ILSTRINGS`` files store each entry as uint32 length + zstring: pass
+    ``length_prefixed=True`` for those."""
     if len(data) < 8:
         raise StringsError("strings file too short")
     count, _dsize = struct.unpack_from("<II", data, 0)
@@ -23,6 +25,13 @@ def parse_strings(data: bytes) -> dict[int, str]:
     for i in range(count):
         sid, off = struct.unpack_from("<II", data, 8 + i * 8)
         start = base + off
+        if length_prefixed:
+            if start + 4 > len(data):
+                continue
+            (ln,) = struct.unpack_from("<I", data, start)
+            start += 4
+            if ln > len(data) - start:
+                continue
         if start >= len(data):
             continue
         end = data.find(b"\x00", start)
@@ -161,10 +170,12 @@ class StringsFinder:
         paths.sort(key=lambda p: not os.path.basename(p).lower().startswith(base.lower()))
         return paths
 
-    def find(self, plugin_path: str) -> tuple[dict[int, str], str] | None:
-        """Return (table, source) or None."""
+    def find(self, plugin_path: str, kind: str = "strings") -> tuple[dict[int, str], str] | None:
+        """Return (table, source) or None. ``kind`` is strings, dlstrings or ilstrings."""
+        kind = kind.lower()
+        prefixed = kind != "strings"
         base = os.path.splitext(os.path.basename(plugin_path))[0]
-        fname = f"{base}_{self.language}.strings"
+        fname = f"{base}_{self.language}.{kind}"
         dirs = []
         for d in [os.path.dirname(os.path.abspath(plugin_path))] + self.dirs:
             if d not in dirs:
@@ -176,7 +187,7 @@ class StringsFinder:
                 if p:
                     try:
                         with open(p, "rb") as f:
-                            return parse_strings(f.read()), f"loose:{p}"
+                            return parse_strings(f.read(), prefixed), f"loose:{p}"
                     except (OSError, StringsError) as e:
                         self.warnings.append(f"{p}: {e}")
         for p in self._bsa_paths(dirs, base):
@@ -192,7 +203,7 @@ class StringsFinder:
             try:
                 data = bsa.read(f"strings/{fname}")
                 if data is not None:
-                    return parse_strings(data), f"bsa:{os.path.basename(p)}"
+                    return parse_strings(data, prefixed), f"bsa:{os.path.basename(p)}"
             except (OSError, StringsError) as e:
                 self.warnings.append(f"{os.path.basename(p)}: {e}")
         return None

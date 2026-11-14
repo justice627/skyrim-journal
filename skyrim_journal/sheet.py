@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections import defaultdict
 
 from .names import NameBook, NameEntry, normalize_key
@@ -131,18 +132,107 @@ def _perk_section(perks: list[tuple[int, int]], b, names: NameBook) -> list[str]
     return out
 
 
-def _quest_status(q: QuestProgress, e: NameEntry | None) -> tuple[str, str]:
-    """(status, basis). Save flag bits first, then the names file's stage lists."""
+# Alternate-start plugin (lower case file name) -> vanilla intro quests it skips (plugin:id).
+ALT_START_SKIPS = {"skyrim unbound.esp": ["Skyrim.esm:03372B"],
+                   "alternate start - live another life.esp": ["Skyrim.esm:03372B"]}
+QT_MISC = 6
+# (plugin file or None for any, global editor id, label, rendering: onoff | count | number)
+INDICATORS = [
+    (None, "DragonsEnabled", "Dragons enabled", "onoff"),
+    (None, "AllowPlayerShout", "Player shouting allowed", "onoff"),
+    (None, "DragonsKilled", "Dragons killed", "count"),
+    (None, "DragonsAbsorbed", "Dragon souls absorbed", "count"),
+    ("Skyrim Unbound.esp", "DragonSoulsEnabled", "Dragon souls enabled", "onoff"),
+    ("Skyrim Unbound.esp", "WordWallsEnabled", "Word walls enabled", "onoff"),
+    ("Skyrim Unbound.esp", "UnlockShouts", "Shouts unlocked", "onoff"),
+    ("Skyrim Unbound.esp", "RandomDragons", "Random dragons", "onoff"),
+    ("Skyrim Unbound.esp", "DelayDragons", "Delayed dragons", "onoff"),
+    ("Skyrim Unbound.esp", "DragonsFought", "Dragons fought", "count"),
+    ("ccQDRSSE001-SurvivalMode.esl", "Survival_ModeEnabled", "Survival mode enabled", "onoff"),
+]
+
+
+def _render_value(v: float, kind: str) -> str:
+    if kind == "onoff":
+        return "on" if v else "off"
+    return str(int(round(v))) if kind == "count" else _num(v)
+
+
+def _global_value(names: NameBook, by_key: dict, plugin: str | None, edid: str) -> float | None:
+    for p, ident in names.find_by_edid(edid, "GLOB"):
+        if plugin is not None and p != plugin.lower():
+            continue
+        if (p, ident) in by_key:
+            return by_key[(p, ident)]
+    return None
+
+
+def _setup_section(b, names: NameBook, gv: dict[int, float]) -> list[str]:
+    allp = b.plugins + b.light_plugins
+    loaded = {p.lower() for p in allp}
+    po, alt = _detect(allp, PERK_OVERHAULS), _detect(allp, ALT_STARTS)
+    out: list[str] = []
+    values: dict[str, float] = {}
+    if not names.user_entries:
+        out += ["Game-setting indicators (dragons, shouting, survival mode) come from the save's "
+                "global variables; resolving them needs a names file (`--names`).", ""]
+    else:
+        by_key = {k: v for fid, v in gv.items() if (k := normalize_key(describe(b, fid) or ""))}
+        rows = []
+        for plugin, edid, lab, kind in INDICATORS:
+            if plugin is not None and plugin.lower() not in loaded:
+                continue
+            v = _global_value(names, by_key, plugin, edid)
+            if v is None:
+                continue
+            values[edid] = v
+            rows.append([lab, _render_value(v, kind), f"`{edid}`"])
+        if rows:
+            out += _table(["Setting", "Value", "Global"], rows) + [""]
+            out += ["Values are the save's global variables, resolved to editor ids through the "
+                    "names file.", ""]
+            if values.get("DragonsEnabled") == 0 and values.get("AllowPlayerShout") == 0 \
+                    and values.get("DragonSoulsEnabled", 0) == 0:
+                out += ["Dragons are disabled and shouting is locked in this save "
+                        "(non-Dragonborn start).", ""]
+        else:
+            out += ["None of the indicator globals could be resolved with this names file.", ""]
+    out.append("Perk overhaul detected from plugin names: " + (", ".join(po) if po else "none") + ".")
+    out.append("Alternate start detected from plugin names: " + (", ".join(alt) if alt else "none") + ".")
+    out.append("")
+    return out
+
+
+def _objective_basis(q: QuestProgress) -> bool:
+    """Every recorded objective is completed (state 2 or 3) and none is displayed."""
+    return bool(q.objectives) and all(s in (2, 3) for _, s in q.objectives)
+
+
+def _classify(q: QuestProgress, e: NameEntry | None) -> tuple[str, str]:
+    """(status, basis) from save evidence: completed / failed / active / other."""
+    reached = set(q.reached)
     if q.completed:
         return "completed", "save flag"
-    if q.failed:
-        return "failed", "save flag"
-    reached = set(q.reached)
     if e and e.complete_stages and reached & set(e.complete_stages):
         return "completed", "completing stage " + str(max(reached & set(e.complete_stages)))
+    if _objective_basis(q):
+        return "completed", "all objectives completed"
+    if q.failed:
+        return "failed", "save flag"
     if e and e.fail_stages and reached & set(e.fail_stages):
         return "failed", "failing stage " + str(max(reached & set(e.fail_stages)))
-    return "active", ""
+    if q.has_displayed_objective:
+        return "active", ""
+    return "other", ""
+
+
+def _started_beyond_start(q: QuestProgress) -> bool:
+    ids = sorted({s for s, _ in q.stages if s != 0})
+    return bool(q.objectives) or bool(q.reached_nonzero and ids and q.reached_nonzero[-1] > ids[0])
+
+
+OBJECTIVE_STATES = {0: "dormant", 1: "displayed", 2: "completed", 3: "completed", 4: "failed",
+                    5: "failed, displayed"}
 
 
 def _quest_section(quests: list[QuestProgress], b, names: NameBook, stats) -> list[str]:
@@ -159,56 +249,66 @@ def _quest_section(quests: list[QuestProgress], b, names: NameBook, stats) -> li
                "as reached (stage 0 is not listed).")
     out.append("")
 
-    def has_progress(q):
-        return bool(q.reached_nonzero or q.objectives or q.completed or q.failed)
+    allp = {p.lower() for p in b.plugins + b.light_plugins}
+    skip_keys = {normalize_key(k) for plug, ks in ALT_START_SKIPS.items() if plug in allp
+                 for k in ks}
+    has_types = any(e.quest_type is not None for e in
+                    (names.entry(describe(b, q.form_id)) for q in quests if q.form_id is not None)
+                    if e)
 
-    groups: dict[str, list] = {"completed": [], "active": [], "failed": [], "unknown": [],
-                               "background": []}
-    n_names = n_guess = 0
+    groups: dict[str, list] = {k: [] for k in ("completed", "failed", "active", "misc", "other",
+                                               "background")}
+    skipped: list = []
+    reclassified: list = []
     for q in sorted(quests, key=lambda q: (q.form_id or 0)):
-        if not has_progress(q):
+        if not (q.reached_nonzero or q.objectives or q.completed or q.failed):
             continue
         d = describe(b, q.form_id)
         e = names.entry(d) if d else None
-        if e is not None and (e.quest_type is not None or e.objectives is not None):
-            n_names += 1
-            journal = (e.objectives or 0) > 0 or (e.quest_type or 0) != 0
-            status, basis = _quest_status(q, e) if journal else ("background", "")
-        else:
-            n_guess += 1
-            named = bool(e and e.name) or not names.user_entries
-            evidence = q.completed or q.failed or q.has_displayed_objective or bool(q.objectives)
-            if not (named and evidence):
-                status, basis = "background", ""
-            elif q.completed or q.failed:
-                status, basis = _quest_status(q, e)
-            elif q.has_displayed_objective:
-                status, basis = "active", ""
-            else:
-                status, basis = "unknown", ""
-        groups[status].append((q, d, e, basis))
+        status, basis = _classify(q, e)
+        item = (q, d, e, basis)
+        if e and re.match(r"MQ\d", e.edid) and e.quest_type not in (None, 0, 1):
+            reclassified.append(item)
+        if status == "completed" and normalize_key(d or "") in skip_keys:
+            skipped.append(item)
+            continue
+        if status == "active":
+            named = bool(e and e.name)
+            misc = has_types and (not named or e.quest_type == QT_MISC)
+            status = "misc" if misc else "active"
+        elif status == "other":
+            named = bool(e and e.name)
+            typed = not has_types or bool(e.quest_type or q.objectives)
+            status = "other" if named and typed and _started_beyond_start(q) else "background"
+        groups[status].append(item)
 
-    if n_guess == 0:
-        method = ("Journal quests are those the names file gives objectives or a quest type; "
-                  "status comes from the save's quest flags (completed 0x2, failed 0x40) and then "
-                  "from the completing and failing stages in the names file.")
+    if has_types:
+        method = ("Status comes from the save only: completed = quest flag 0x2, a reached stage "
+                  "the names file marks as completing, or objectives recorded with every one "
+                  "completed; failed = quest flag 0x40 or a reached failing stage; active = not "
+                  "completed or failed, with an objective displayed (objective state 1 or quest "
+                  "flag 0x2000). Miscellaneous objectives are active quests of type Misc or "
+                  "without a display name.")
     else:
-        method = ("The names file has no quest types or objectives for "
-                  + ("these quests" if not n_names else f"{n_guess} of the quests")
-                  + " (exported by an older version, or no names file), so journal quests are "
-                    "guessed: a quest with a display name"
-                  + (" (waived: no names loaded)" if not names.user_entries else "")
-                  + " and, in the save, a completed or failed flag, a recorded objective or a "
-                    "displayed objective. Status comes from the save's quest flag bits "
-                    "(0x2 completed, 0x40 failed) and displayed objectives; a quest with "
-                    "recorded objectives but none of these shows as status unknown.")
-        if n_names:
-            method += (f" The other {n_names} used the names file's quest types and stages.")
+        method = ("The names file has no quest types (exported by an older version, or no names "
+                  "file), so active quests are not split by type. Completed = quest flag 0x2, a "
+                  "completing stage in the names file, or objectives recorded with every one "
+                  "completed; failed = quest flag 0x40 or a failing stage; active = not completed "
+                  "or failed, with an objective displayed (objective state 1 or quest flag 0x2000).")
     out += [method, ""]
 
-    show_type = any(e and e.quest_type is not None for _, _, e, _ in sum(groups.values(), []))
+    def objective_cell(q, e):
+        shown = [i for i, st in q.objectives if st == 1]
+        if not shown:
+            return "flag only"
+        txt = (e.objective_text if e and e.objective_text else {})
+        return "; ".join(f"{txt[i]} (objective {i})" if i in txt else f"objective {i}" for i in shown)
 
-    def qrows(items, basis=False, objective=False):
+    def obj_states(q):
+        return ", ".join(f"{i}: {OBJECTIVE_STATES.get(st, st)}" for i, st in q.objectives)
+
+    def qrows(items, basis=False, objective=False, states=False):
+        show_type = has_types
         head = ["Quest"] + (["Type"] if show_type else []) + ["Highest stage", "Stages reached"]
         rows = []
         for q, d, e, bs in items:
@@ -221,9 +321,12 @@ def _quest_section(quests: list[QuestProgress], b, names: NameBook, stats) -> li
             if basis:
                 r.append(bs)
             if objective:
-                r.append("yes" if q.has_displayed_objective else "")
+                r.append(objective_cell(q, e))
+            if states:
+                r.append(obj_states(q))
             rows.append(r)
-        return head + (["Basis"] if basis else []) + (["Objective displayed"] if objective else []), rows
+        return head + (["Basis"] if basis else []) + (["Displayed objective"] if objective else []) \
+            + (["Objective states"] if states else []), rows
 
     def table(title, items, **kw):
         out.append(f"#### {title} ({len(items)})")
@@ -232,30 +335,55 @@ def _quest_section(quests: list[QuestProgress], b, names: NameBook, stats) -> li
             out.extend(["None.", ""])
             return
         head, rows = qrows(items, **kw)
-        right = {head.index("Highest stage")}
-        out.extend(_table(head, rows, right))
+        out.extend(_table(head, rows, {head.index("Highest stage")}))
         out.append("")
 
     table("Completed", groups["completed"], basis=True)
+    if skipped:
+        out += ["Skipped by the alternate start: " + ", ".join(label(d) for _, d, _, _ in skipped)
+                + ".", ""]
     done = next((s.value for s in qstats if s.name == "Quests Completed"), None)
     if done is not None:
         out += [f"The misc stat Quests Completed is {done}; {len(groups['completed'])} quests "
-                "above carry a completed flag or completing stage. The two need not agree "
+                "above are completed by the rules above. The two need not agree "
                 "(for example, quests completed by a mod's script, or kinds of quest the "
                 "counter does not include).", ""]
-    table("Active", groups["active"], objective=True)
-    if groups["unknown"]:
-        table("Started, status unknown", groups["unknown"])
+    if reclassified and _detect(sorted(allp), ALT_STARTS):
+        main_done = next((s.value for s in qstats if s.name == "Main Quests Completed"), None)
+        out += ["The alternate start has reclassified main-quest entries: "
+                + ", ".join(f"{label(d)} ({e.edid}, {QUEST_TYPES.get(e.quest_type, e.quest_type)})"
+                            for _, d, e, _ in reclassified)
+                + " carry a quest type other than Main Quest in the names file"
+                + (f"; the save's Main Quests Completed counter is {main_done}"
+                   if main_done is not None else "") + ".", ""]
+    if has_types:
+        table("Active quests", groups["active"], objective=True)
+        table("Miscellaneous objectives", groups["misc"], objective=True)
+    else:
+        table("Active", groups["active"], objective=True)
     if groups["failed"]:
         table("Failed", groups["failed"], basis=True)
+
+    oth = groups["other"]
+    out.append(f"<details><summary>Other started quests ({len(oth)})</summary>")
+    out.append("")
+    out.append("Named quests with recorded objectives or a reached stage beyond their lowest "
+               "stage that are not completed, failed or showing an objective.")
+    out.append("")
+    if oth:
+        head, rows = qrows(oth, states=True)
+        out += _table(head, rows, {head.index("Highest stage")})
+    else:
+        out.append("None.")
+    out += ["", "</details>", ""]
+
     bg = groups["background"]
     out.append(f"<details><summary>Background and radiant quests ({len(bg)})</summary>")
     out.append("")
-    out.append("Quests with a stage other than 0 reached that are not journal quests by the "
-               "rule above (dialogue, radiant, mod plumbing).")
+    out.append("Everything else with a stage other than 0 reached (dialogue, radiant jobs and "
+               "favours waiting at their start stage, mod plumbing).")
     out.append("")
-    head, rows = qrows(bg)
-    out += _table(head, rows, {head.index("Highest stage")})
+    out.append(", ".join(label(d) for _, d, _, _ in bg) if bg else "None.")
     out += ["", "</details>", ""]
     return out
 
@@ -266,7 +394,8 @@ def build_sheet(parsed: ParsedSave, save_file_name: str, names: NameBook | None 
     ctype = h.compression_type
     stats = parse_misc_stats(b)
     stat = {s.name: s.value for s in stats}
-    gv = parse_global_variables(b)
+    gv_all = parse_global_variables(b)
+    gv = gv_all
     gt = {n: gv[i] for i, n in KNOWN_GLOBALS.items() if i in gv}
     loc = parse_player_location(b)
     pinfo = parsed.player_info()
@@ -306,6 +435,7 @@ def build_sheet(parsed: ParsedSave, save_file_name: str, names: NameBook | None 
                      " / ".join(_num(state.attributes[k]) for k in ("Health", "Magicka", "Stamina")
                                 if k in state.attributes) + " (saved base values)"])
     L += ["### Who", ""] + _table(["", ""], rows) + [""]
+    L += ["### Playthrough setup", ""] + _setup_section(b, names, gv_all)
 
     # --- Skills -----------------------------------------------------------------------
     L += ["### Skills", ""]
@@ -393,10 +523,7 @@ def build_sheet(parsed: ParsedSave, save_file_name: str, names: NameBook | None 
     # --- Load order -------------------------------------------------------------------
     L += ["### Load order", ""]
     allp = b.plugins + b.light_plugins
-    po, alt = _detect(allp, PERK_OVERHAULS), _detect(allp, ALT_STARTS)
-    L.append("Perk overhaul detected from plugin names: " + (", ".join(po) if po else "none") + ".")
-    L.append("Alternate start detected from plugin names: " + (", ".join(alt) if alt else "none") + ".")
-    L += ["", f"{len(b.plugins)} full plugins and {len(b.light_plugins)} light plugins "
+    L += [f"{len(b.plugins)} full plugins and {len(b.light_plugins)} light plugins "
               f"({len(allp)} total).", "",
           "<details><summary>Full list</summary>", ""]
     L += [f"- [{i:02X}] {p}" for i, p in enumerate(b.plugins)]
@@ -411,7 +538,8 @@ def build_sheet(parsed: ParsedSave, save_file_name: str, names: NameBook | None 
             "Perk points available" + ("" if names.has_perk_trees else
                                         "; which perks the player chose needs a names file "
                                         "with perk trees"),
-            "Objective and journal entry text of quests",
+            "Journal entry (stage log) text of quests; objective text needs a names file "
+            "exported by version 1.2 or later",
             "Spells, shouts and dragon souls known; magic favorites",
             "Equipment slots, enchantments, tempering and weights of items",
             "Followers, houses, horses and map discovery",

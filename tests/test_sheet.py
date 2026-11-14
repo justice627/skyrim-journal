@@ -6,7 +6,7 @@ import struct
 import pytest
 
 from skyrim_journal.cli import main
-from skyrim_journal.names import NameBook, NamesFileError, normalize_key
+from skyrim_journal.names import NameBook, NameEntry as NameBookEntry, NamesFileError, normalize_key
 from skyrim_journal.parser import parse_save
 from skyrim_journal.parser.globaldata import parse_misc_stats
 from skyrim_journal.parser.playerstate import (SKILL_NAMES, find_actor_values, find_inventory,
@@ -155,13 +155,14 @@ def test_sheet_content(parsed):
     assert "289 quests" in text and "127 have a stage" in text
     assert ("| `Skyrim.esm:01DBFC` | 100 | 10, 20, 30, 40, 41, 42, 60, 70, 75, 80, 100 | save flag |"
             in text)
-    assert "#### Completed (6)" in text and "#### Active (8)" in text
-    assert "(waived: no names loaded)" in text
+    assert "#### Completed (6)" in text and "#### Active (8)" in text   # no names: one Active table
+    assert "Skipped by the alternate start: `Skyrim.esm:03372B`" in text
+    assert "needs a names file" in text and "Dragons enabled" not in text
     assert "Adamant (`Adamant.esp`" in text and "Skyrim Unbound (`Skyrim Unbound.esp`" in text
     assert "31 full plugins and 45 light plugins (76 total)." in text
-    assert text.count("<details>") == text.count("</details>") == 4
+    assert text.count("<details>") == text.count("</details>") == 5
     assert "a names file exported with perk trees" in text and "All perks (102)" in text
-    for sec in ("Who", "Skills", "Factions", "Gold and inventory", "Quests", "Activity",
+    for sec in ("Who", "Playthrough setup", "Skills", "Factions", "Gold and inventory", "Quests", "Activity",
                 "Load order", "Not yet extracted"):
         assert f"### {sec}\n" in text
 
@@ -182,7 +183,7 @@ def test_cli_sheet_stdout_out_and_names(tmp_path, capsys):
     assert capsys.readouterr().out == ""
     text = dest.read_text(encoding="utf-8")
     assert "| A Named Quest | 100 |" in text and "`Skyrim.esm:01DBFC`" not in text
-    assert "#### Completed (1)" in text   # only the named quest passes the display-name rule
+    assert "#### Completed (6)" in text and "#### Active (8)" in text   # save evidence, no types
     assert sorted(os.listdir(save_dir)) == before   # nothing written next to the save
 
 
@@ -263,58 +264,161 @@ def _q(fid, stages, flags=None, objectives=()):
     return QuestProgress(fid, [(s, 1) for s in stages], flags, list(objectives))
 
 
-def test_quest_section_with_exporter_fields():
+def _qn(edid, name, qt, objectives=1, complete=(), fail=()):
+    return {"edid": edid, "name": name, "type": "QUST", "quest_type": qt, "objectives": objectives,
+            "complete_stages": list(complete), "fail_stages": list(fail)}
+
+
+def test_quest_section_rules_with_quest_types():
     nb = NameBook({
-        "Skyrim.esm:000801": {"edid": "Side", "name": "Side Quest A", "type": "QUST",
-                              "quest_type": 8, "objectives": 3, "complete_stages": [100],
-                              "fail_stages": [90]},
-        "Skyrim.esm:000802": {"edid": "Main", "name": "Main Quest B", "type": "QUST",
-                              "quest_type": 1, "objectives": 4, "complete_stages": [200],
-                              "fail_stages": []},
-        "Skyrim.esm:000803": {"edid": "Misc", "name": "Done by flag", "type": "QUST",
-                              "quest_type": 6, "objectives": 1, "complete_stages": [],
-                              "fail_stages": []},
-        "Skyrim.esm:000804": {"edid": "Lost", "name": "Failed Quest", "type": "QUST",
-                              "quest_type": 8, "objectives": 1, "complete_stages": [],
-                              "fail_stages": [90]},
-        "Skyrim.esm:000805": {"edid": "Dlg", "name": "Dialogue", "type": "QUST",
-                              "quest_type": 0, "objectives": 0, "complete_stages": [],
-                              "fail_stages": []},
-        "Skyrim.esm:000806": {"edid": "Unstarted", "name": "Unstarted", "type": "QUST",
-                              "quest_type": 8, "objectives": 2, "complete_stages": [],
-                              "fail_stages": []}})
+        "Skyrim.esm:000801": _qn("Side", "Side Quest A", 8, 3, [100], [90]),
+        "Skyrim.esm:000802": _qn("Main", "Main Quest B", 1, 4, [200]),
+        "Skyrim.esm:000803": _qn("Misc", "Done by flag", 6, 1),
+        "Skyrim.esm:000804": _qn("Lost", "Failed Quest", 8, 1, [], [90]),
+        "Skyrim.esm:000805": _qn("Dlg", "Dialogue", 0, 0),
+        "Skyrim.esm:000806": _qn("Unstarted", "Unstarted", 8, 2),
+        "Skyrim.esm:000807": _qn("ByObj", "All objectives done", 8, 2),
+        "Skyrim.esm:000808": _qn("Shown", "Shown Quest", 8, 2, [100]),
+        "Skyrim.esm:000809": _qn("MiscShown", "Misc Shown", 6, 1),
+        "Skyrim.esm:00080A": _qn("NoNameShown", "", 8, 1),
+        "Skyrim.esm:00080B": _qn("Waiting", "Waiting Job", 5, 1, [200]),
+        "Skyrim.esm:00080C": _qn("Half", "Half Done", 8, 2),
+        "Skyrim.esm:00080D": _qn("Beyond", "Went Further", 8, 0),
+        "Skyrim.esm:00080E": _qn("LostObj", "Lost Objective", 8, 1),
+        "Skyrim.esm:00080F": _qn("FlagShown", "Flag Shown", 8, 0),
+        "Skyrim.esm:000810": _qn("Both", "Fail And Done", 8, 1, [100], [90]),
+        "Skyrim.esm:000811": _qn("FlagFail", "Fail By Flag", 8, 1),
+    })
+    nb._by_key[("skyrim.esm", 0x808)] = NameBookEntry(
+        **{**nb.entry("Skyrim.esm:000808").__dict__, "objective_text": {10: "Find the gem"}})
     quests = [_q(0x801, [10, 100]), _q(0x802, [5, 50]), _q(0x803, [10], flags=0x2),
-              _q(0x804, [10, 90]), _q(0x805, [10]), _q(0x806, [])]
+              _q(0x804, [10, 90]), _q(0x805, [10]), _q(0x806, []),
+              _q(0x807, [10, 20], objectives=[(10, 3), (20, 3)]),
+              _q(0x808, [10], flags=0x2001, objectives=[(10, 1), (20, 0)]),
+              _q(0x809, [10], flags=0x2001, objectives=[(5, 1)]),
+              _q(0x80A, [10], flags=0x2000),
+              _q(0x80B, [10]),                                     # waiting at its start stage
+              _q(0x80C, [10, 20], objectives=[(10, 3), (20, 1)]),  # one still displayed
+              _q(0x80D, [10, 30]),                                 # stage beyond the lowest
+              _q(0x80E, [10], objectives=[(10, 4)]),               # failed objective only
+              _q(0x80F, [10], flags=0x2000),
+              _q(0x810, [10, 90, 100]),                            # completing wins over failing
+              _q(0x811, [10], flags=0x40)]
     text = "\n".join(_quest_section(quests, _body(), nb, []))
-    assert "#### Completed (2)" in text and "#### Active (1)" in text and "#### Failed (1)" in text
-    assert "| Side Quest A | Side Quest | 100 | 10, 100 | completing stage 100 |" in text
-    assert "| Done by flag | Misc | 10 | 10 | save flag |" in text
-    assert "| Main Quest B | Main Quest | 50 | 5, 50 |" in text
-    assert "| Failed Quest | Side Quest | 90 | 10, 90 | failing stage 90 |" in text
-    assert "Background and radiant quests (1)" in text and "| Dialogue |" in text
-    assert "Unstarted" not in text                      # no progress, not listed
-    assert "guessed" not in text
+    sec = {}
+    cur = None
+    for ln in text.splitlines():
+        if ln.startswith("#### ") or ln.startswith("<summary>") or "<summary>" in ln:
+            cur = ln
+            sec[cur] = []
+        elif cur:
+            sec[cur].append(ln)
+
+    def rows(prefix):
+        k = next(k for k in sec if prefix in k)
+        return k, [ln for ln in sec[k] if ln.startswith("| ") and not ln.startswith("| Quest")]
+
+    k, done = rows("Completed")
+    assert "Completed (4)" in k
+    assert "| Side Quest A | Side Quest | 100 | 10, 100 | completing stage 100 |" in done
+    assert "| Done by flag | Misc | 10 | 10 | save flag |" in done
+    assert "| All objectives done | Side Quest | 20 | 10, 20 | all objectives completed |" in done
+    assert any(r.startswith("| Fail And Done |") and r.endswith("completing stage 100 |") for r in done)
+    assert not any("Half Done" in r for r in done)       # one objective still displayed
+    k, failed = rows("Failed")
+    assert "Failed (2)" in k and any("Failed Quest" in r and r.endswith("failing stage 90 |") for r in failed)
+    assert any("Fail By Flag" in r and r.endswith("save flag |") for r in failed)
+    k, act = rows("Active quests")
+    assert "Active quests (3)" in k
+    assert any(r.startswith("| Shown Quest | Side Quest | 10 | 10 | Find the gem (objective 10) |") for r in act)
+    assert any(r.startswith("| Half Done |") and r.endswith("objective 20 |") for r in act)
+    assert any(r.startswith("| Flag Shown |") and r.endswith("flag only |") for r in act)
+    k, misc = rows("Miscellaneous objectives")
+    assert "Miscellaneous objectives (2)" in k      # type Misc, and the unnamed quest
+    assert any(r.startswith("| Misc Shown |") and r.endswith("objective 5 |") for r in misc)
+    assert any("NoNameShown" in r for r in misc)
+    k, oth = rows("Other started")
+    assert "Other started quests (3)" in k
+    assert any(r.startswith("| Main Quest B |") for r in oth)          # beyond its lowest stage
+    assert any(r.startswith("| Went Further |") for r in oth)
+    assert any(r.startswith("| Lost Objective |") and r.endswith("10: failed |") for r in oth)
+    k, _ = rows("Background")
+    assert "Background and radiant quests (2)" in k
+    assert "Waiting Job" in text and "Dialogue" in text
+    assert "Unstarted" not in text and "guessed" not in text
+    assert "Skipped by the alternate start" not in text
 
 
-def test_quest_section_fallback_uses_flags_and_never_guesses_status():
+def test_quest_section_without_quest_types_one_active_table():
     nb = NameBook({"Skyrim.esm:000801": {"name": "Named done"}, "Skyrim.esm:000802": {"name": "Named shown"},
                    "Skyrim.esm:000803": {"name": "Named, objectives only"},
                    "Skyrim.esm:000804": {"edid": "OnlyEdid"}, "Skyrim.esm:000805": {"name": "Plain"}})
     quests = [_q(0x801, [200], flags=0x2, objectives=[(10, 3)]),
               _q(0x802, [10], flags=0x2001, objectives=[(10, 1)]),
-              _q(0x803, [200], flags=0x0, objectives=[(15, 3)]),
+              _q(0x803, [200], flags=0x0, objectives=[(15, 3), (16, 3)]),
               _q(0x804, [10], flags=0x2000), _q(0x805, [10], flags=0x11),
               _q(0x806, [1], flags=0x42)]
     text = "\n".join(_quest_section(quests, _body(), nb, []))
-    assert "#### Completed (1)" in text and "| Named done | 200 | 200 | save flag |" in text
-    assert "#### Active (1)" in text and "| Named shown |" in text
-    assert "#### Started, status unknown (1)" in text and "| Named, objectives only |" in text
-    assert "guessed" in text and "Type" not in text
-    assert "Background and radiant quests (3)" in text    # edid-only, plain, unnamed
-    # failed flag lands in Failed once named
-    nb2 = NameBook({"Skyrim.esm:000806": {"name": "Gone"}})
-    text = "\n".join(_quest_section([_q(0x806, [1], flags=0x40)], _body(), nb2, []))
-    assert "#### Failed (1)" in text and "| Gone | 1 | 1 | save flag |" in text
+    assert "#### Completed (3)" in text and "| Named done | 200 | 200 | save flag |" in text
+    assert "| Named, objectives only | 200 | 200 | all objectives completed |" in text
+    assert "#### Active (2)" in text and "| Named shown | 10 | 10 | objective 10 |" in text
+    assert "| OnlyEdid |" in text and "Miscellaneous objectives" not in text and "Type" not in text
+    assert "Background and radiant quests (1)" in text and "Other started quests (0)" in text
+    assert "no quest types" in text
+
+
+def test_quest_section_skips_alt_start_intro_and_notes_reclassification():
+    nb = NameBook({"Skyrim.esm:03372B": _qn("MQ101", "Unbound", 6, 1, [900]),
+                   "Skyrim.esm:04E50D": _qn("MQ102", "Before the Storm", 6, 3, [160]),
+                   "Skyrim.esm:0D0800": _qn("MQ103", "Bleak Falls Barrow", 8, 3),
+                   "Skyrim.esm:0A0001": _qn("MQ201", "Real Main", 1, 3, [100])})
+    quests = [_q(0x03372B, [1, 900], flags=0x102), _q(0x04E50D, [5, 160], flags=0x102),
+              _q(0x0D0800, [1, 8]), _q(0x0A0001, [10, 100])]
+    stats = [SimpleNamespace(name="Main Quests Completed", value=0, category_name="Quest")]
+    plain = "\n".join(_quest_section(quests, _body(("Skyrim.esm", "Mod.esp")), nb, stats))
+    assert "#### Completed (3)" in plain and "| Unbound | Misc |" in plain
+    assert "Skipped by" not in plain and "reclassified" not in plain
+    alt = _body(("Skyrim.esm", "Skyrim Unbound.esp"))
+    text = "\n".join(_quest_section(quests, alt, nb, stats))
+    assert "#### Completed (2)" in text and "| Unbound |" not in text
+    assert "Skipped by the alternate start: Unbound." in text
+    assert "| Before the Storm | Misc |" in text           # type shown as exported
+    assert ("reclassified main-quest entries: Unbound (MQ101, Misc), Before the Storm "
+            "(MQ102, Misc), Bleak Falls Barrow (MQ103, Side Quest) carry a quest type other "
+            "than Main Quest" in text)
+    assert "Real Main (MQ201" not in text and "Main Quests Completed counter is 0" in text
+
+
+def test_setup_section_synthetic():
+    from skyrim_journal.sheet import _setup_section
+    b = SimpleNamespace(plugins=["Skyrim.esm", "Skyrim Unbound.esp", "Adamant.esp"],
+                        light_plugins=[], form_id_array=[])
+    names = NameBook({
+        "Skyrim.esm:09F24F": {"edid": "DragonsEnabled", "type": "GLOB"},
+        "Skyrim.esm:0AFB80": {"edid": "AllowPlayerShout", "type": "GLOB"},
+        "Skyrim.esm:01C0F1": {"edid": "DragonsKilled", "type": "GLOB"},
+        "Skyrim Unbound.esp:0022EC": {"edid": "DragonSoulsEnabled", "type": "GLOB"},
+        "Other.esp:000800": {"edid": "DragonSoulsEnabled", "type": "GLOB"},
+        "Skyrim.esm:000810": {"edid": "DragonsEnabled", "type": "PERK"}})
+    gv = {0x0009F24F: 0.0, 0x000AFB80: 0.0, 0x0001C0F1: 3.0, 0x0100_22EC: 0.0}
+    text = "\n".join(_setup_section(b, names, gv))
+    assert "| Dragons enabled | off | `DragonsEnabled` |" in text
+    assert "| Player shouting allowed | off | `AllowPlayerShout` |" in text
+    assert "| Dragons killed | 3 | `DragonsKilled` |" in text
+    assert "| Dragon souls enabled | off | `DragonSoulsEnabled` |" in text
+    assert "Dragon souls absorbed" not in text and "Survival" not in text    # absent: omitted
+    assert "Dragons are disabled and shouting is locked in this save (non-Dragonborn start)." in text
+    assert "Perk overhaul detected from plugin names: Adamant (`Adamant.esp`)." in text
+    assert "Alternate start detected from plugin names: Skyrim Unbound (`Skyrim Unbound.esp`)." in text
+    # an enabled value, or Unbound's soul setting on, drops the summary
+    for gv2 in ({**gv, 0x0009F24F: 1.0}, {**gv, 0x0100_22EC: 1.0}, {**gv, 0x000AFB80: 1.0}):
+        assert "Dragons are disabled" not in "\n".join(_setup_section(b, names, gv2))
+    # without a names file there is no table, one explanatory line
+    text = "\n".join(_setup_section(b, NameBook(), gv))
+    assert "needs a names file" in text and "| Setting |" not in text
+    # unresolvable names file: stated, no table
+    other = NameBook({"Skyrim.esm:000001": {"edid": "X"}})
+    assert "None of the indicator globals could be resolved" in "\n".join(_setup_section(b, other, gv))
 
 
 @needs_sample
@@ -343,3 +447,31 @@ def test_sample_sheet_with_synthetic_perk_trees(parsed):
     assert "Perks chosen in skill trees: 3" in text
     assert "Other perks (granted by mods, quests and abilities): 99" in text
     assert text.count("<details>") == text.count("</details>")
+
+
+@needs_sample
+def test_sample_sheet_with_real_names_file():
+    names_path = os.path.join(os.path.dirname(__file__), "..", "names.json")
+    if not os.path.exists(names_path):
+        pytest.skip("no names.json present")
+    with open(SAMPLES[0], "rb") as f:
+        text = build_sheet(parse_save(f.read()), "x.ess", NameBook.load(names_path))
+
+    def section(title):
+        a = text.index(f"#### {title} (")
+        return text[a:text.index("\n<details>" if "\n<details>" in text[a:] and text.index("\n<details>", a) < text.index("\n#", a + 5) else "\n#", a + 5)]
+    done = section("Completed")
+    assert "Rise in the East" in done and "Some Light Theft" in done
+    assert "| Unbound |" not in done and "Skipped by the alternate start: Unbound." in text
+    active, misc = section("Active quests"), section("Miscellaneous objectives")
+    n = lambda sec: sum(1 for ln in sec.splitlines() if ln.startswith("| ")) - 1
+    assert n(active) + n(misc) < 15
+    assert "The Forgotten City" in active and "MS05Start" in misc
+    assert "Thane of the Pale" in text and "Bleak Falls Barrow" in text.split("Other started")[1]
+    setup = text[text.index("### Playthrough setup"):text.index("### Skills")]
+    assert "| Dragons enabled | off | `DragonsEnabled` |" in setup
+    assert "Dragons are disabled and shouting is locked" in setup
+    assert "Alternate start detected" in setup and "Perk overhaul detected" in setup
+    assert text.index("### Who") < text.index("### Playthrough setup") < text.index("### Skills")
+    load = text[text.index("### Load order"):]
+    assert "Alternate start detected" not in load.split("### Not yet")[0]

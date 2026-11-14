@@ -19,7 +19,7 @@ from ..parser import SaveParseError
 from .reader import PluginError, scan_plugin
 from .strings import DirIndex, StringsFinder
 
-TOOL_VERSION = "1.1.0"
+TOOL_VERSION = "1.2.0"
 BASE_MASTERS = ["Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm",
                 "Dragonborn.esm"]
 PLUGIN_EXTS = (".esm", ".esp", ".esl")
@@ -145,7 +145,10 @@ def build(data_dirs, load_order=None, language="english", log=None):
         try:
             scan = scan_plugin(path)
             table, source = None, None
-            if scan.localized and any(isinstance(r.full, int) for r in scan.records):
+            if scan.localized and any(
+                    isinstance(r.full, int)
+                    or any(isinstance(t, int) for t in r.extra.get("objective_text", {}).values())
+                    for r in scan.records):
                 hit = finder.find(path)
                 if hit:
                     table, source = hit
@@ -162,6 +165,20 @@ def build(data_dirs, load_order=None, language="english", log=None):
                 else:
                     dname, dlight = pname, scan.light
                 return f"{dname}:{fid & (0xFFF if dlight else 0xFFFFFF):06X}"
+
+            aux: dict[str, dict[int, str] | None] = {}
+
+            def lookup_text(sid, table=table, path=path):
+                """Id -> text: the STRINGS table, else the DLSTRINGS / ILSTRINGS tables."""
+                if table and sid in table:
+                    return table[sid]
+                for kind in ("dlstrings", "ilstrings"):
+                    if kind not in aux:
+                        hit = finder.find(path, kind)
+                        aux[kind] = hit[0] if hit else None
+                    if aux[kind] and sid in aux[kind]:
+                        return aux[kind][sid]
+                return None
 
             local: dict[str, dict] = {}
             local_trees: dict[str, list[str]] = {}
@@ -189,6 +206,13 @@ def build(data_dirs, load_order=None, language="english", log=None):
                     for f in ("quest_type", "objectives", "complete_stages", "fail_stages"):
                         if f in ex:
                             entry[f] = ex[f]
+                    texts = {}
+                    for idx, t in sorted(ex.get("objective_text", {}).items()):
+                        t = lookup_text(t) if isinstance(t, int) else t
+                        if t:
+                            texts[str(idx)] = t
+                    if texts:
+                        entry["objective_text"] = texts
                 elif r.rtype == "AVIF" and ex.get("perks"):
                     local_trees[rkey] = list(dict.fromkeys(resolve(f) for f in ex["perks"]))
                 local[rkey] = entry

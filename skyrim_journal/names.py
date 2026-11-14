@@ -7,14 +7,15 @@ name is case-insensitive, the id may have any number of leading zeros) to
 shown, falling back to ``edid``.
 
 Newer exports add optional fields: PERK ``playable``/``hidden``/``next`` (key of the next rank),
-QUST ``quest_type``/``objectives``/``complete_stages``/``fail_stages``, and a top-level
+QUST ``quest_type``/``objectives``/``complete_stages``/``fail_stages`` (and, from exporter 1.2,
+``objective_text``: ``{"<objective index>": "<display text>"}``), and a top-level
 ``_perk_trees`` object (see ``NameBook.perk_trees``). Other keys starting with ``_`` are
 exporter metadata and are ignored.
 """
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 class NamesFileError(ValueError):
@@ -35,6 +36,7 @@ class NameEntry:
     objectives: int | None = None
     complete_stages: tuple[int, ...] | None = None
     fail_stages: tuple[int, ...] | None = None
+    objective_text: dict[int, str] | None = field(default=None, compare=False)
 
     @property
     def label(self) -> str:
@@ -87,6 +89,8 @@ def _entry(key: str, value: object) -> NameEntry:
     for f in ("complete_stages", "fail_stages"):
         if f in value:
             extra[f] = _int_list(key, f, value[f])
+    if "objective_text" in value:
+        extra["objective_text"] = _objective_text(key, value["objective_text"])
     return NameEntry(value.get("edid", ""), value.get("name", ""), value.get("type", ""), **extra)
 
 
@@ -96,6 +100,17 @@ class PerkTree:
     skill: str          # AVIF editor id
     skill_name: str     # AVIF display name (may be empty)
     perks: tuple[str, ...]
+
+
+def _objective_text(key: str, v: object) -> dict[int, str]:
+    if not isinstance(v, dict) or not all(isinstance(t, str) for t in v.values()):
+        raise NamesFileError(f"entry {key!r}: field 'objective_text' must map objective "
+                             "indexes to strings")
+    try:
+        return {int(i): t for i, t in v.items()}
+    except ValueError:
+        raise NamesFileError(f"entry {key!r}: field 'objective_text' has a non-numeric "
+                             "objective index") from None
 
 
 def _int_list(key: str, f: str, v: object) -> tuple[int, ...]:
@@ -134,6 +149,7 @@ class NameBook:
                     raise NamesFileError(f"bad key {k!r}: expected '<Plugin>:<hex id>'")
                 self._by_key[nk] = _entry(k, v)
         self.user_entries = len(user or {})
+        self._by_edid: dict[tuple[str, str], list[tuple[str, int]]] | None = None
 
     @property
     def has_perk_trees(self) -> bool:
@@ -157,6 +173,16 @@ class NameBook:
         if not isinstance(data, dict):
             raise NamesFileError("names file must be a JSON object")
         return cls(data)
+
+    def find_by_edid(self, edid: str, type: str) -> list[tuple[str, int]]:
+        """(lower-case plugin, local id) of every ``type`` entry with this editor id
+        (case-insensitive), in names-file order."""
+        if self._by_edid is None:
+            self._by_edid = {}
+            for (plugin, ident), e in self._by_key.items():
+                if e.edid:
+                    self._by_edid.setdefault((e.type, e.edid.lower()), []).append((plugin, ident))
+        return list(self._by_edid.get((type, edid.lower()), []))
 
     def entry(self, key: str) -> NameEntry | None:
         """Entry for a ``plugin:id`` key even if it has no name or edid."""

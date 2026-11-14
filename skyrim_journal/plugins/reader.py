@@ -43,7 +43,8 @@ class RawRecord:
     # Type-specific data (raw form ids as stored, i.e. relative to the plugin's own masters):
     #   PERK: playable, hidden (bool), next (int form id)
     #   AVIF: perks (list of int form ids from the skill tree)
-    #   QUST: quest_type (int), objectives (int), complete_stages, fail_stages (list of int)
+    #   QUST: quest_type (int), objectives (int), complete_stages, fail_stages (list of int),
+    #         objective_text (objective index -> str, or int string id when localized)
     extra: dict = field(default_factory=dict)
 
 
@@ -125,7 +126,7 @@ def _u32(data) -> int | None:
     return struct.unpack_from("<I", bytes(data), 0)[0] if len(data) == 4 else None
 
 
-def _extract_extra(rtype: bytes, buf) -> dict:
+def _extract_extra(rtype: bytes, buf, localized: bool = False) -> dict:
     """Perk, skill-tree and quest details. Defensive: anything unexpected is simply left out."""
     out: dict = {}
     if rtype == b"PERK":
@@ -145,8 +146,9 @@ def _extract_extra(rtype: bytes, buf) -> dict:
                     perks.append(fid)
         out["perks"] = perks
     elif rtype == b"QUST":
-        objectives, stage = 0, None
+        objectives, stage, cur_obj = 0, None, None
         complete, fail = set(), set()
+        texts: dict[int, str | int] = {}
         for t, data in _iter_subrecords(buf):
             if t == b"DNAM":
                 # flags u16, priority u8, formVersion u8, [4 unknown bytes], questType u32
@@ -157,6 +159,7 @@ def _extract_extra(rtype: bytes, buf) -> dict:
                         out["quest_type"] = qt
             elif t == b"INDX" and len(data) >= 2:
                 stage = struct.unpack_from("<H", bytes(data), 0)[0]
+                cur_obj = None
             elif t == b"QSDT" and len(data) >= 1 and stage is not None:
                 if data[0] & 0x1:
                     complete.add(stage)
@@ -164,6 +167,20 @@ def _extract_extra(rtype: bytes, buf) -> dict:
                     fail.add(stage)
             elif t == b"QOBJ":
                 objectives += 1
+                cur_obj = struct.unpack_from("<H", bytes(data), 0)[0] if len(data) >= 2 else None
+            elif t == b"NNAM" and cur_obj is not None:
+                # display text of the objective just opened by QOBJ (lstring when localized)
+                if localized:
+                    text = _u32(data)           # anything but a 4-byte id is not a string id
+                else:
+                    text = decode_text(bytes(data))
+                if text not in (None, "", 0):
+                    texts.setdefault(cur_obj, text)
+                cur_obj = None
+            elif t in (b"ALST", b"ALLS", b"ANAM"):
+                cur_obj = None          # aliases start: later NNAMs are not objective text
+        if texts:
+            out["objective_text"] = texts
         out.update(objectives=objectives, complete_stages=sorted(complete),
                    fail_stages=sorted(fail))
     return out
@@ -209,7 +226,7 @@ def _walk(mm, start, end, out, localized, size_total):
             edid, full = _extract(data, localized)
             if edid is not None or full is not None:
                 try:
-                    extra = _extract_extra(rtype, data) if rtype in _EXTRA_TYPES else {}
+                    extra = _extract_extra(rtype, data, localized) if rtype in _EXTRA_TYPES else {}
                 except (PluginError, struct.error):
                     extra = {}
                 out.append(RawRecord(rtype.decode("ascii"), b, edid, full, extra))
