@@ -39,6 +39,33 @@ def _render(d: dict) -> str:
         if p["payload_error"]:
             L.append(f"    payload error: {p['payload_error']}")
         L.append(f"    first bytes: {p['first_bytes_hex']}")
+    pl = d.get("player")
+    L.append("\n== Player ==")
+    if not pl:
+        L.append("  not decoded")
+    else:
+        L.append(f"  {pl['name']}  level {pl['level']}  race {pl['race']}")
+        L.append(f"  base health/magicka/stamina: {pl['base_health']}/{pl['base_magicka']}"
+                 f"/{pl['base_stamina']}  (NPC_ base values, not current)")
+        L.append("  base skills (NPC_ record): " + ", ".join(f"{k} {v}" for k, v in pl["skills"].items()))
+        L.append(f"  factions: " + ", ".join(f"{f['faction']}({f['rank']})" for f in pl["factions"]))
+        L.append(f"  undecoded trailing bytes (face data): {pl['undecoded_bytes']}")
+    loc, gt = d.get("player_location"), d.get("game_time")
+    if loc:
+        L.append(f"  location: {loc['worldspace']} cell ({loc['cell_x']},{loc['cell_y']}) "
+                 f"pos {', '.join(f'{x:.0f}' for x in loc['pos'])}")
+    if gt:
+        L.append(f"  game time: year {gt.get('GameYear'):g} month {gt.get('GameMonth'):g} day "
+                 f"{gt.get('GameDay'):g} hour {gt.get('GameHour'):.2f}; days passed "
+                 f"{gt.get('GameDaysPassed'):.2f}" if len(gt) >= 5 else f"  game time: {gt}")
+    stats = d.get("misc_stats") or []
+    L.append(f"\n== Misc stats ({len(stats)}) ==")
+    cat = None
+    for s in stats:
+        if s["category"] != cat:
+            cat = s["category"]
+            L.append(f"  [{cat}]")
+        L.append(f"    {s['name']}: {s['value']}")
     if d["warnings"]:
         L.append("\n== Warnings ==")
         L += [f"  {w}" for w in d["warnings"]]

@@ -74,6 +74,7 @@ class SaveBody:
     form_id_array: list[int]
     change_forms: list[ChangeForm]
     warnings: list[str]
+    raw: bytes = field(default=b"", repr=False)  # decompressed body
 
 
 def parse_refid(b: bytes) -> tuple[int, int]:
@@ -184,6 +185,6 @@ def parse_body(buf: bytes, version: int, bases: list[int]) -> SaveBody:
             warnings.append(f"offset base {base} rejected: {e}")
             continue
         return SaveBody(form_version, plugin_info_size, plugins, light, table, base,
-                        form_ids, forms, warnings)
+                        form_ids, forms, warnings, buf)
     raise FormatError("Could not map file location table offsets into the body with any "
                       f"candidate base {bases}. First failure: {last}")
