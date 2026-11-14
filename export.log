@@ -1,0 +1,282 @@
+[1/280] Skyrim.esm: 21798 records (localized, strings: bsa:Skyrim - Interface.bsa)
+[2/280] Update.esm: 1392 records (localized, strings: bsa:Skyrim - Interface.bsa)
+[3/280] Dawnguard.esm: 2608 records (localized, strings: bsa:Skyrim - Interface.bsa)
+[4/280] HearthFires.esm: 1219 records (localized, strings: bsa:Skyrim - Interface.bsa)
+[5/280] Dragonborn.esm: 4087 records (localized, strings: bsa:Skyrim - Interface.bsa)
+[6/280] BSAssets.esm: 863 records
+[7/280] ccBGSSSE001-Fish.esm: 599 records (localized, strings: bsa:ccBGSSSE001-Fish.bsa)
+[8/280] ccBGSSSE025-AdvDSGS.esm: 314 records (localized, strings: bsa:ccBGSSSE025-AdvDSGS.bsa)
+[9/280] evgSIRENROOT.esm: 132 records
+[10/280] Falskaar.esm: 1117 records
+[11/280] Lux - Master plugin.esm: 32 records
+[12/280] SSE-Terrain-Tamriel.esm: 2 records
+[13/280] _ResourcePack.esl: 18 records (localized, strings: bsa:_ResourcePack.bsa)
+[14/280] A Clear Map of Skyrim.esp: 7 records
+[15/280] Adamant.esp: 1710 records
+[16/280] AdamantBlade.esp: 33 records
+[17/280] AdamantCrossbows.esp: 6 records
+[18/280] AHZmoreHUD.esp: 46 records
+[19/280] AHZmoreHUDInventory.esl: 0 records
+[20/280] AMatterOfTime.esp: 7 records
+[21/280] atlas map markers.esp: 122 records
+[22/280] Azurite III CS.esp: 0 records
+[23/280] Azurite Weathers III.esp: 18 records
+[24/280] BA_KhajiitSpeakRedux_MAIN.esp: 0 records
+[25/280] BA_KSR_ACatsLife_KSPA_MERGED.esp: 0 records
+[26/280] BA_KSR_AllThievesGuildJobsConcurrently_KSMP_MERGED.esp: 0 records
+[27/280] BA_KSR_AlternatePerspective_PATCH.esp: 0 records
+[28/280] BA_KSR_AlternateStart-LiveAnotherLife_PATCH.esp: 0 records
+[29/280] BA_KSR_Andromeda_PATCH.esp: 0 records
+[30/280] BA_KSR_Apocalypse_PATCH.esp: 0 records
+[31/280] BA_KSR_Artifacts-TheTournamentOfTheTenBloods_KSE_MERGED.esp: 0 records
+[32/280] BA_KSR_AskInnkeeperToShowRoom_PATCH.esp: 0 records
+[33/280] BA_KSR_AurlynDawnstone-TheReclusivePhilosopher_PATCH.esp: 0 records
+[34/280] BA_KSR_BeyondReach_PATCH.esp: 0 records
+[35/280] BA_KSR_BeyondSkyrim-BrumaSE_PATCH.esp: 0 records
+[36/280] BA_KSR_BeyondSkyrim-WaresOfTamrielSE_PATCH.esp: 0 records
+[37/280] BA_KSR_BuyableGoldenClaw_KSPA_MERGED.esp: 0 records
+[38/280] BA_KSR_Campfire_PATCH.esp: 0 records
+[39/280] BA_KSR_CarriageAndFerryTravelOverhaul-KSEE_MERGED.esp: 0 records
+[40/280] BA_KSR_CathedralWeathers_PATCH.esp: 0 records
+[41/280] BA_KSR_CitizensOfTamriel_PATCH.esp: 0 records
+[42/280] BA_KSR_CompleteAlchemyAndCookingOverhaul_PATCH.esp: 0 records
+[43/280] BA_KSR_CompleteCraftingOverhaulRemastered_PATCH.esp: 0 records
+[44/280] BA_KSR_ConvenientHorses_EMKSP_MERGED.esp: 0 records
+[45/280] BA_KSR_CreationClub-AltArmors-DaedricMail_PATCH.esp: 0 records
+[46/280] BA_KSR_CreationClub-AltArmors-EbonyPlate_PATCH.esp: 0 records
+[47/280] BA_KSR_CreationClub-AltArmors-OrcishScaled_PATCH.esp: 0 records
+[48/280] BA_KSR_CreationClub-Bittercup_PATCH.esp: 0 records
+[49/280] BA_KSR_CreationClub-BloodchillManor_PATCH.esp: 0 records
+[50/280] BA_KSR_CreationClub-BloodchillManor~KOT_PATCH.esp: 0 records
+[51/280] BA_KSR_CreationClub-BoneWolf_PATCH.esp: 0 records
+[52/280] BA_KSR_CreationClub-BowOfShadows_PATCH.esp: 0 records
+[53/280] BA_KSR_CreationClub-Camping_PATCH.esp: 0 records
+[54/280] BA_KSR_CreationClub-CivilWarChampions_PATCH.esp: 0 records
+[55/280] BA_KSR_CreationClub-DawnfangAndDuskfang_PATCH.esp: 0 records
+[56/280] BA_KSR_CreationClub-DeadMansDread_PATCH.esp: 0 records
+[57/280] BA_KSR_CreationClub-DivineCrusader_PATCH.esp: 0 records
+[58/280] BA_KSR_CreationClub-Farming_PATCH.esp: 0 records
+[59/280] BA_KSR_CreationClub-Fishing_PATCH.esp: 0 records
+[60/280] BA_KSR_CreationClub-ForgottenSeasons_PATCH.esp: 0 records
+[61/280] BA_KSR_CreationClub-GallowsHall_PATCH.esp: 0 records
+[62/280] BA_KSR_CreationClub-GhostsOfTheTribunal_PATCH.esp: 0 records
+[63/280] BA_KSR_CreationClub-Goblins_PATCH.esp: 0 records
+[64/280] BA_KSR_CreationClub-Goldbrand_PATCH.esp: 0 records
+[65/280] BA_KSR_CreationClub-HeadmansCleaver_PATCH.esp: 0 records
+[66/280] BA_KSR_CreationClub-Hendraheim_PATCH.esp: 0 records
+[67/280] BA_KSR_CreationClub-Myrwatch_PATCH.esp: 0 records
+[68/280] BA_KSR_CreationClub-NetchLeatherArmor_PATCH.esp: 0 records
+[69/280] BA_KSR_CreationClub-Nix-Hound_PATCH.esp: 0 records
+[70/280] BA_KSR_CreationClub-PetsOfSkyrim_PATCH.esp: 0 records
+[71/280] BA_KSR_CreationClub-RedguardEliteArmaments_PATCH.esp: 0 records
+[72/280] BA_KSR_CreationClub-SaintsAndSeducers_PATCH.esp: 0 records
+[73/280] BA_KSR_CreationClub-ShadowfootSanctum_PATCH.esp: 0 records
+[74/280] BA_KSR_CreationClub-Shadowrend_PATCH.esp: 0 records
+[75/280] BA_KSR_CreationClub-SunderAndWraithguard_PATCH.esp: 0 records
+[76/280] BA_KSR_CreationClub-SurvivalMode_PATCH.esp: 0 records
+[77/280] BA_KSR_CreationClub-TheCause_PATCH.esp: 0 records
+[78/280] BA_KSR_CreationClub-TheGrayCowlReturns_PATCH.esp: 0 records
+[79/280] BA_KSR_CreationClub-TundraHomestead_PATCH.esp: 0 records
+[80/280] BA_KSR_CreationClub-Umbra_PATCH.esp: 0 records
+[81/280] BA_KSR_CreationClub-VigilEnforcerArmor_PATCH.esp: 0 records
+[82/280] BA_KSR_CreationClub-WildHorses_PATCH.esp: 0 records
+[83/280] BA_KSR_CuttingRoomFloor_PATCH.esp: 0 records
+[84/280] BA_KSR_ExpandedTownsAndCities-Resources_PATCH.esp: 0 records
+[85/280] BA_KSR_ExpandedTownsAndCities-Riverwood_PATCH.esp: 0 records
+[86/280] BA_KSR_Falskaar-NoticeBoard_PATCH.esp: 0 records
+[87/280] BA_KSR_Falskaar_PATCH.esp: 0 records
+[88/280] BA_KSR_Frostfall_PATCH.esp: 0 records
+[89/280] BA_KSR_GuardDialogOverhaul-Redux_KSMP_MERGED.esp: 0 records
+[90/280] BA_KSR_HelgenReborn_PATCH.esp: 0 records
+[91/280] BA_KSR_ImGladYoureHere_PATCH.esp: 0 records
+[92/280] BA_KSR_ImmersiveCollegeOfWinterhold_KSE_MERGED.esp: 0 records
+[93/280] BA_KSR_ImmersiveSpeechcraft_KSPA_MERGED.esp: 0 records
+[94/280] BA_KSR_ImmersiveWorldEncounters_PATCH.esp: 0 records
+[95/280] BA_KSR_Imperious-RacesOfSkyrim_PATCH.esp: 0 records
+[96/280] BA_KSR_iNeed-Continued_PATCH.esp: 0 records
+[97/280] BA_KSR_Inigo_KSE_MERGED.esp: 0 records
+[98/280] BA_KSR_InterestingNPCs_PATCH.esp: 0 records
+[99/280] BA_KSR_iWant-RNDforCACO_PATCH.esp: 0 records
+[100/280] BA_KSR_Kaidan2-3DNPCPatch_PATCH.esp: 0 records
+[101/280] BA_KSR_Kaidan2-ExtendedEdition_PATCH.esp: 0 records
+[102/280] BA_KSR_Kaidan2-FartPatch_PATCH.esp: 0 records
+[103/280] BA_KSR_Kaidan2-ImmersiveFeatures_PATCH.esp: 0 records
+[104/280] BA_KSR_Kaidan2-KaidanAndInigoBanterPatch_PATCH.esp: 0 records
+[105/280] BA_KSR_Kaidan2-LOTDPatch_PATCH.esp: 0 records
+[106/280] BA_KSR_Kaidan2-SkyrimsGotTalentPatch_PATCH.esp: 0 records
+[107/280] BA_KSR_Kaidan2_PATCH.esp: 0 records
+[108/280] BA_KSR_KeepItClean_PATCH.esp: 0 records
+[109/280] BA_KSR_KhajiitWillFollow-ForgottenCity_PATCH.esp: 0 records
+[110/280] BA_KSR_KhajiitWillFollow-Vigilant_PATCH.esp: 0 records
+[111/280] BA_KSR_KhajiitWillFollow_PATCH.esp: 0 records
+[112/280] BA_KSR_KonahrikAccoutrements_PATCH.esp: 0 records
+[113/280] BA_KSR_LegacyOfTheDragonborn_PATCH.esp: 0 records
+[114/280] BA_KSR_LockOverhaul_PATCH.esp: 0 records
+[115/280] BA_KSR_LOTD-ArtifactsTTOTTB_PATCH.esp: 0 records
+[116/280] BA_KSR_LOTD-CCORPatchesMerged_PATCH.esp: 0 records
+[117/280] BA_KSR_LOTD-InterestingNPCs_PATCH.esp: 0 records
+[118/280] BA_KSR_LOTD-MiscellaneousMerged_PATCH.esp: 0 records
+[119/280] BA_KSR_LOTD-MoonAndStar_PATCH.esp: 0 records
+[120/280] BA_KSR_LOTD-MoonpathToElsweyr_PATCH.esp: 0 records
+[121/280] BA_KSR_LOTD-MrissisTailsOfTrouble_PATCH.esp: 0 records
+[122/280] BA_KSR_LOTD-SafehousePlus_PATCH.esp: 0 records
+[123/280] BA_KSR_LOTD-TheCuratorsCompanion_PATCH.esp: 0 records
+[124/280] BA_KSR_LOTD-TheGrayCowlOfNocturnal_PATCH.esp: 0 records
+[125/280] BA_KSR_LOTD-WeaponsArmoursMerged_PATCH.esp: 0 records
+[126/280] BA_KSR_LOTD-Wyrmstooth_PATCH.esp: 0 records
+[127/280] BA_KSR_LotsMoreFollowers_PATCH.esp: 0 records
+[128/280] BA_KSR_MiscDialogueEdits_KSPA_MERGED.esp: 0 records
+[129/280] BA_KSR_Missives-BeyondReach_PATCH.esp: 0 records
+[130/280] BA_KSR_Missives-BrumaPatchSE_PATCH.esp: 0 records
+[131/280] BA_KSR_Missives-FalskaarPatch_PATCH.esp: 0 records
+[132/280] BA_KSR_Missives-GrayCowlPatch_PATCH.esp: 0 records
+[133/280] BA_KSR_Missives-OBISAddon_PATCH.esp: 0 records
+[134/280] BA_KSR_Missives-Solstheim_PATCH.esp: 0 records
+[135/280] BA_KSR_Missives-Wyrnstooth_PATCH.esp: 0 records
+[136/280] BA_KSR_Missives_PATCH.esp: 0 records
+[137/280] BA_KSR_MoonAndStar_PATCH.esp: 0 records
+[138/280] BA_KSR_MoonlightTales_PATCH.esp: 0 records
+[139/280] BA_KSR_MoonpathToElsweyr_KSE_MERGED.esp: 0 records
+[140/280] BA_KSR_MoreRacismInWindhelm_PATCH.esp: 0 records
+[141/280] BA_KSR_MoreToDo_MKSP_MERGED.esp: 0 records
+[142/280] BA_KSR_MoreToSay-CityGuards_MKSP_MERGED.esp: 0 records
+[143/280] BA_KSR_MoreToSay-Falkreath_MKSP_MERGED.esp: 0 records
+[144/280] BA_KSR_MoreToSay-FollowerBanter_MKSP_MERGED.esp: 0 records
+[145/280] BA_KSR_MoreToSay-Generic_MKSP_MERGED.esp: 0 records
+[146/280] BA_KSR_MoreToSay-Karthwasten_MKSP_MERGED.esp: 0 records
+[147/280] BA_KSR_MoreToSay-Riften_MKSP_MERGED.esp: 0 records
+[148/280] BA_KSR_MoreToSay-Riverwood_MKSP_MERGED.esp: 0 records
+[149/280] BA_KSR_MoreToSay-Rorikstead_MKSP_MERGED.esp: 0 records
+[150/280] BA_KSR_MoreToSay-SecretOfRorikstead_MKSP_MERGED.esp: 0 records
+[151/280] BA_KSR_MoreToSay-ShorsStone_MKSP_MERGED.esp: 0 records
+[152/280] BA_KSR_MoreToSay-Whiterun_MKSP_MERGED.esp: 0 records
+[153/280] BA_KSR_MoreToSay-Winterhold_MKSP_MERGED.esp: 0 records
+[154/280] BA_KSR_MrissisTailsOfTrouble_PATCH.esp: 0 records
+[155/280] BA_KSR_NethersFollowerFramework_PATCH.esp: 0 records
+[156/280] BA_KSR_NewBeginnings-LiveAnotherLifeExt_PATCH.esp: 0 records
+[157/280] BA_KSR_NoToNocturnal_PATCH.esp: 0 records
+[158/280] BA_KSR_ObscuresCollegeOfWinterhold_RKSPC_MERGED.esp: 0 records
+[159/280] BA_KSR_OMEGA-HeavyArmory_PATCH.esp: 0 records
+[160/280] BA_KSR_Ordinator_PATCH.esp: 0 records
+[161/280] BA_KSR_Paarthumax-QuestExpansion_PATCH.esp: 0 records
+[162/280] BA_KSR_PenitusOculatus_PATCH.esp: 0 records
+[163/280] BA_KSR_ProvincialCourierService_KSEE_MERGED.esp: 0 records
+[164/280] BA_KSR_Ravengate_PATCH.esp: 0 records
+[165/280] BA_KSR_RealisticNeedsAndDiseases-AIO_PATCH.esp: 0 records
+[166/280] BA_KSR_RelationshipDialogOverhaul_KSMP_MERGED.esp: 0 records
+[167/280] BA_KSR_RelicHunter-GuildmasterStart_PATCH.esp: 0 records
+[168/280] BA_KSR_Rorikstead_PATCH.esp: 0 records
+[169/280] BA_KSR_Sacrosanct_PATCH.esp: 0 records
+[170/280] BA_KSR_SeranaDialogAddon_PATCH.esp: 0 records
+[171/280] BA_KSR_SeranaDialogEdit_PATCH.esp: 0 records
+[172/280] BA_KSR_Serenity-ASilentMoonsCampOverhaul_PATCH.esp: 0 records
+[173/280] BA_KSR_ShadowsOfThePast_PATCH.esp: 0 records
+[174/280] BA_KSR_SidequestsOfSkyrim_PATCH.esp: 0 records
+[175/280] BA_KSR_SimplyKnock_PATCH.esp: 0 records
+[176/280] BA_KSR_Skygerfall-DaggerfallsMainQuestInTESV_PATCH.esp: 0 records
+[177/280] BA_KSR_SkyRem-Cori_PATCH.esp: 0 records
+[178/280] BA_KSR_SkyrimReputation_PATCH.esp: 0 records
+[179/280] BA_KSR_SkyrimSewers_PATCH.esp: 0 records
+[180/280] BA_KSR_SkyrimsGotTalent-Bards_YAKSPC_MERGED.esp: 0 records
+[181/280] BA_KSR_SkyrimUniqueTreasures_PATCH.esp: 0 records
+[182/280] BA_KSR_SleepForMeNow-ESL_PATCH.esp: 0 records
+[183/280] BA_KSR_SleepForMeNow-ESP_PATCH.esp: 0 records
+[184/280] BA_KSR_SneakTools_PATCH.esp: 0 records
+[185/280] BA_KSR_SongOfTheGreen-Auri_PATCH.esp: 0 records
+[186/280] BA_KSR_SongOfTheGreen-AuriInigoBanter_PATCH.esp: 0 records
+[187/280] BA_KSR_SongOfTheGreen-AuriKaidenBanter_PATCH.esp: 0 records
+[188/280] BA_KSR_StealthKillsForFollowers_PATCH.esp: 0 records
+[189/280] BA_KSR_Summermyst_PATCH.esp: 0 records
+[190/280] BA_KSR_TacticalValtheim_PATCH.esp: 0 records
+[191/280] BA_KSR_TavernGames_PATCH.esp: 0 records
+[192/280] BA_KSR_TESV-HuntOfHircine_PATCH.esp: 0 records
+[193/280] BA_KSR_TheBrotherhoodOfOld_PATCH.esp: 0 records
+[194/280] BA_KSR_TheChoiceIsYours_PATCH.esp: 0 records
+[195/280] BA_KSR_TheForgottenCity_KSEE_MERGED.esp: 0 records
+[196/280] BA_KSR_TheForgottenIsland_PATCH.esp: 0 records
+[197/280] BA_KSR_TheGrayCowlOfNocturnal_KSE_MERGED.esp: 0 records
+[198/280] BA_KSR_TheNoticeBoard_PATCH.esp: 0 records
+[199/280] BA_KSR_ThePaarthumaxDilemma_PATCH.esp: 0 records
+[200/280] BA_KSR_ThereIsNoUmbra-ChapterII_PATCH.esp: 0 records
+[201/280] BA_KSR_TheSecretsOfArcCyrae_PATCH.esp: 0 records
+[202/280] BA_KSR_TheSinisterSeven_PATCH.esp: 0 records
+[203/280] BA_KSR_TheToolsOfKagrenac_PATCH.esp: 0 records
+[204/280] BA_KSR_ThievesGuildForGoodGuys_EMKSP_MERGED.esp: 0 records
+[205/280] BA_KSR_ThievesGuildRequirements_PATCH.esp: 0 records
+[206/280] BA_KSR_ThievesNightOnTheTown_PATCH.esp: 0 records
+[207/280] BA_KSR_Thunderchild_EMKSP_MERGED.esp: 0 records
+[208/280] BA_KSR_TradeAndBarter_PATCH.esp: 0 records
+[209/280] BA_KSR_Vigilant-Voiced_PATCH.esp: 0 records
+[210/280] BA_KSR_Vigilant_PATCH.esp: 0 records
+[211/280] BA_KSR_VoyageToTheDreamborneIsles_PATCH.esp: 0 records
+[212/280] BA_KSR_Wildcat_PATCH.esp: 0 records
+[213/280] BA_KSR_Wintersun_PATCH.esp: 0 records
+[214/280] BA_KSR_WondersOfWeather_PATCH.esp: 0 records
+[215/280] BA_KSR_Wyrmstooth_KSE_MERGED.esp: 0 records
+[216/280] BA_KSR_YourChoicesMatter_PATCH.esp: 0 records
+[217/280] BBNoKillmoves.esp: 0 records
+[218/280] BladeAndBlunt.esp: 360 records
+[219/280] Book Covers Skyrim - Lost Library.esp: 337 records
+[220/280] Book Covers Skyrim.esp: 975 records
+[221/280] ccBGSSSE037-Curios.esl: 68 records (localized, strings: bsa:ccBGSSSE037-Curios.bsa)
+[222/280] ccQDRSSE001-SurvivalMode.esl: 445 records (localized, strings: bsa:ccQDRSSE001-SurvivalMode.bsa)
+[223/280] Clockwork.esp: 443 records
+[224/280] CoMAP - KhajiitCaravans.esp: 1 records
+[225/280] CoMAP - Stendarr Marker.esp: 0 records
+[226/280] Comprehensive_Falskaar_Fixes.esp: 66 records
+[227/280] cutting room floor.esp: 352 records
+[228/280] Dwarfsphere.esp: 733 records
+[229/280] DwarfsphereImprovedPatch.esp: 27 records
+[230/280] Experience.esl: 1 records
+[231/280] ForgottenCity.esp: 327 records
+[232/280] HonedMetal.esp: 22 records
+[233/280] ImTalkinHere.esp: 1 records
+[234/280] Journey to Baan Malur - no smp.esp: 7 records
+[235/280] Journey to Baan Malur.esp: 2034 records
+[236/280] Leveled Lists Merge.esp: 0 records
+[237/280] LexiconSKSE.esl: 1 records
+[238/280] Lucien.esp: 431 records
+[239/280] Lux - Brighter Templates.esp: 0 records
+[240/280] Lux - CC Fish patch.esp: 4 records
+[241/280] Lux - Clockwork.esp: 32 records
+[242/280] Lux - Cuting Room Floor.esp: 17 records
+[243/280] Lux - Falskaar patch.esp: 70 records
+[244/280] Lux - Forgotten City.esp: 27 records
+[245/280] Lux - Lucien.esp: 7 records
+[246/280] Lux - ProjectAHO.esp: 34 records
+[247/280] Lux - Resources.esp: 1 records
+[248/280] Lux - Saints and Seducers patch.esp: 1 records
+[249/280] Lux - Sirenroot patch.esp: 12 records
+[250/280] Lux - Skyrim Unbound patch.esp: 1 records
+[251/280] Lux - USSEP patch.esp: 47 records
+[252/280] Lux Via - Blended Roads Bridges Texture sets.esp: 0 records
+[253/280] Lux Via - CRF patch.esp: 14 records
+[254/280] Lux Via - plugin.esp: 62 records
+[255/280] Lux Via.esp: 230 records
+[256/280] Lux.esp: 843 records
+[257/280] MCMHelper.esp: 0 records
+[258/280] Morrowind Map Fix.esp: 1 records
+[259/280] Mortal Enemies - USSEP Patch.esp: 8 records
+[260/280] Mortal Enemies.esp: 92 records
+[261/280] MysticismMagic.esp: 2266 records
+[262/280] MzarkWonders.esp: 154 records
+[263/280] notice board.esp: 372 records
+[264/280] RaceMenu.esp: 1 records
+[265/280] RaceMenuPlugin.esp: 1 records
+[266/280] Runandwalkpaces.esp: 0 records
+[267/280] SimonrimAttackSpeedFix.esp: 6 records
+[268/280] SimonrmSaintsSeducersSmithing.esp: 3 records
+[269/280] Skyland Watercolor - Slow Green-Vanilla.esp: 0 records
+[270/280] Skyrim Unbound - Book Covers Skyrim Patch.esp: 1 records
+[271/280] Skyrim Unbound - Cutting Room Floor Patch.esp: 0 records
+[272/280] Skyrim Unbound - Trade & Barter Patch.esp: 2 records
+[273/280] Skyrim Unbound.esp: 150 records
+[274/280] SkyUI_SE.esp: 7 records
+[275/280] SMIM-SE-Merged-All.esp: 32 records
+[276/280] trade & barter.esp: 134 records
+[277/280] TrueHUD.esl: 3 records
+[278/280] unofficial skyrim special edition patch.esp: 6952 records
+[279/280] Vokrii - Minimalistic Perks of Skyrim.esp: 1204 records
+[280/280] WheelsOfLull.esp: 601 records
+Done: 280 plugins, 42073 names, 1 skipped -> names.json
+  skipped: /home/ibrahimn/Games/mo2-lint/mo2-skyrim_se-steam/mods/Book Covers Skyrim - USSEP Update/Book Covers Skyrim.esp: duplicate of /home/ibrahimn/Games/mo2-lint/mo2-skyrim_se-steam/mods/Book Covers Skyrim/Book Covers Skyrim.esp
