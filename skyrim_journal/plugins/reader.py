@@ -13,7 +13,7 @@ import zlib
 from dataclasses import dataclass, field
 
 RECORD_TYPES = frozenset(
-    "QUST PERK WEAP ARMO AMMO ALCH INGR BOOK MISC KEYM SLGM SCRL SPEL SHOU "
+    "QUST PERK WEAP ARMO AMMO ALCH INGR BOOK MISC KEYM SLGM SCRL LIGH SPEL SHOU "
     "WOOP MGEF ENCH FACT RACE NPC_ LCTN CELL WRLD AVIF GLOB".split()
 )
 _WANTED_BYTES = frozenset(t.encode("ascii") for t in RECORD_TYPES)

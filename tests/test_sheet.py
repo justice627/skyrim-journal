@@ -17,8 +17,13 @@ from types import SimpleNamespace
 from skyrim_journal.parser.quests import QuestProgress
 from skyrim_journal.sheet import _perk_section, _quest_section, build_sheet
 
-SAMPLES = sorted(glob.glob(os.path.join(os.path.dirname(__file__), "..", "samples", "*.ess")))
-needs_sample = pytest.mark.skipif(not SAMPLES, reason="no real sample save present")
+def _sample(prefix):
+    found = sorted(glob.glob(os.path.join(os.path.dirname(__file__), "..", "samples", prefix + "*.ess")))
+    return found[0] if found else None
+
+
+SAVE5, SAVE6 = _sample("Save5_"), _sample("Save6_")
+needs_sample = pytest.mark.skipif(SAVE5 is None, reason="no real sample save (Save5_*.ess) present")
 
 
 # ---- synthetic unit tests (always run) ---------------------------------------------------
@@ -66,9 +71,60 @@ def test_inventory_walk_with_extra_data():
     assert items is not None and len(items) == 4
     assert [i.count for i in items] == [1, 1157, 8, 1]
     assert items[0].worn and not items[1].worn
-    # an unknown extra type makes the walk fail rather than guess
+    # an unknown extra type with nothing after it that could validate the alignment: the list
+    # is not accepted (a start inside it would be a shorter, unrelated list)
     bad = b"\x04" + (b"\x41\x39\x13" + struct.pack("<i", 1) + b"\x04\x04\x7f") + gold
     assert find_inventory(bad, fa) is None
+
+
+MARKER = b"\x55\xfb\x01" + struct.pack("<I", 2) + b"\x13\x00BShkbAnimationGraph"
+
+
+def _synthetic_list(unknown_payload=b"\x01\x02\x03\x04\x05", with_marker=True, n_extra_items=6):
+    """Gold, lockpicks, an item carrying an extra of unknown type 0x7F, then more items."""
+    fa = [0x00000000] * 0x5000
+    for i, fid in enumerate([0x13913, 0x3AD72, 0x1397D, 0x13985, 0x134AA, 0x1B3BD, 0x77E1D, 0x34D22]):
+        fa[0x4000 + i] = fid
+    ref = lambda i: bytes([0x00 | (((0x4000 + i + 1) >> 16) & 0x3F), ((0x4000 + i + 1) >> 8) & 0xFF,
+                           (0x4000 + i + 1) & 0xFF])
+    gold = b"\x40\x00\x0f" + struct.pack("<i", 986) + b"\x00"
+    pick = b"\x40\x00\x0a" + struct.pack("<i", 19) + b"\x00"
+    odd = ref(0) + struct.pack("<i", 1) + b"\x04\x04\x7f" + unknown_payload
+    rest = [ref(1 + i) + struct.pack("<i", 2 + i) + b"\x00" for i in range(n_extra_items)]
+    worn = ref(7) + struct.pack("<i", 1) + b"\x04\x04\x16"
+    body = gold + pick + odd + b"".join(rest) + worn
+    n = 3 + len(rest) + 1
+    blob = b"\xaa\xbb\xcc" + bytes([n << 2]) + body + (MARKER if with_marker else b"\xff" * 20)
+    return blob, fa
+
+
+def test_inventory_resync_after_unknown_extra_type():
+    for payload in (b"", b"\x01\x02\x03\x04\x05", bytes(range(1, 12))):
+        blob, fa = _synthetic_list(payload)
+        items = find_inventory(blob, fa)
+        assert items is not None and len(items) == 10, payload
+        assert [i.details_incomplete for i in items] == [False, False, True] + [False] * 7
+        assert items[0].form_id == 0x0F and items[0].count == 986
+        assert items[2].count == 1 and items[2].extra_types == []
+        assert [i.count for i in items[3:9]] == [2, 3, 4, 5, 6, 7]
+        assert items[9].worn and not items[9].details_incomplete
+
+
+def test_inventory_resync_needs_everything_after_it_to_walk():
+    blob, fa = _synthetic_list()
+    # corrupt the last item's RefID so that no alignment walks the whole rest of the list
+    assert find_inventory(blob[:-len(MARKER) - 9] + b"\xff\xff\xff" + b"\x00" * 6 + MARKER, fa) is None
+    # without the structure that follows the list an alignment cannot be confirmed
+    nomark, fa = _synthetic_list(with_marker=False)
+    assert find_inventory(nomark, fa) is None
+
+
+def test_inventory_unknown_extra_in_the_last_item_keeps_the_list():
+    fa = [0] * 0x5000
+    gold = b"\x40\x00\x0f" + struct.pack("<i", 5) + b"\x00"
+    odd = b"\x41\x39\x13" + struct.pack("<i", 1) + b"\x04\x04\x7f\x01\x02"
+    items = find_inventory(b"\xaa" + bytes([2 << 2]) + gold + odd + b"\x00" * 4, fa)
+    assert items is not None and [i.details_incomplete for i in items] == [False, True]
 
 
 def test_names_keys_and_labels(tmp_path):
@@ -106,7 +162,7 @@ def test_names_file_errors(tmp_path):
 
 @pytest.fixture(scope="module")
 def parsed():
-    with open(SAMPLES[0], "rb") as f:
+    with open(SAVE5, "rb") as f:
         return parse_save(f.read())
 
 
@@ -142,6 +198,81 @@ def test_player_state_real(parsed):
     assert len(st.perks) == 102 and all(r == 1 for _, r in st.perks)
 
 
+needs_save6 = pytest.mark.skipif(SAVE6 is None, reason="no real sample save (Save6_*.ess) present")
+
+
+@pytest.fixture(scope="module")
+def parsed6():
+    with open(SAVE6, "rb") as f:
+        return parse_save(f.read())
+
+
+@needs_sample
+def test_save5_inventory_has_no_undecoded_extras(parsed):
+    h = parsed.header
+    st = parse_player_state(parsed.body, h.compression_type, h.cur_exp, h.lvlup_exp)
+    assert not any(i.details_incomplete for i in st.inventory)
+
+
+@needs_save6
+def test_player_state_save6(parsed6):
+    h = parsed6.header
+    st = parse_player_state(parsed6.body, h.compression_type, h.cur_exp, h.lvlup_exp)
+    # the whole inventory walks (an extra of type 0x27 sits on the fourth item)
+    assert len(st.inventory) == 49 and not st.inventory_is_partial
+    assert not any(i.details_incomplete for i in st.inventory)
+    assert st.gold() == 986 and st.lockpicks() == 19
+    stats = {s.name: s.value for s in parse_misc_stats(parsed6.body)}
+    assert stats["Most Gold Carried"] >= st.gold()
+    base, cur = parsed6.player_info()["skills"], st.skills
+    assert sum(cur[n] - base[n] for n in SKILL_NAMES) == stats["Skill Increases"] == 25
+    assert sum(st.attributes.values()) == 300 + 10 * (h.player_level - 1)
+    assert len(st.perks) == 102
+    # the skill block is found although its level field lags the actor values for 5 skills
+    assert st.skill_block is not None
+    assert [n for i, n in enumerate(SKILL_NAMES) if round(st.skill_block[i][0]) != cur[n]] == [
+        "Marksman", "LightArmor", "Lockpicking", "Sneak", "Restoration"]
+    assert sum(1 for i in st.inventory if i.worn) == 7
+    odd = st.inventory[3]
+    assert odd.extra_types == [0x27] and len(odd.payloads[0]) == 4
+
+
+@needs_save6
+def test_save6_unknown_type_is_resynchronised_on_real_data(parsed6):
+    """Forget the size of 0x27: the item stays, flagged, and the other 48 are unchanged."""
+    from skyrim_journal.parser import playerstate as ps
+    h = parsed6.header
+    ref = parse_player_state(parsed6.body, h.compression_type, h.cur_exp, h.lvlup_exp).inventory
+    saved = ps.EXTRA_SIZES.pop(0x27)
+    try:
+        st = parse_player_state(parsed6.body, h.compression_type, h.cur_exp, h.lvlup_exp)
+    finally:
+        ps.EXTRA_SIZES[0x27] = saved
+    assert not st.inventory_is_partial and len(st.inventory) == 49
+    assert [i.details_incomplete for i in st.inventory] == [i == 3 for i in range(49)]
+    assert [(i.form_id, i.count, i.extra_types) for i in st.inventory if not i.details_incomplete] \
+        == [(i.form_id, i.count, i.extra_types) for k, i in enumerate(ref) if k != 3]
+
+
+@needs_save6
+def test_sheet_save6(parsed6):
+    text = build_sheet(parsed6, "x.ess", NameBook())
+    assert "Only gold and lockpicks" not in text
+    assert "| Gold | 986 |" in text and "| Lockpicks | 19 |" in text
+    assert "Full inventory: 49 entries" in text and "All extra data of every entry was decoded." in text
+    assert "total gained 25; the save's Skill Increases counter is 25" in text
+    assert "not decoded |" not in text and "| Marksman | 15 | 18 | 13 / 561 |" in text
+    assert "extra 0x27 = 224.5" in text and "| 1 | worn |" in text
+
+
+def test_sheet_marks_items_with_undecoded_details():
+    from skyrim_journal.parser.playerstate import InventoryItem
+    from skyrim_journal.sheet import _item_details
+    assert _item_details(InventoryItem(1, 1, [0x16], [b""])) == "worn"
+    assert _item_details(InventoryItem(1, 1, [], [], True)) == "details not decoded"
+    assert _item_details(InventoryItem(1, 2, [])) == ""
+
+
 @needs_sample
 def test_sheet_content(parsed):
     text = build_sheet(parsed, "x.ess", NameBook())
@@ -169,9 +300,9 @@ def test_sheet_content(parsed):
 
 @needs_sample
 def test_cli_sheet_stdout_out_and_names(tmp_path, capsys):
-    save_dir = os.path.dirname(os.path.abspath(SAMPLES[0]))
+    save_dir = os.path.dirname(os.path.abspath(SAVE5))
     before = sorted(os.listdir(save_dir))
-    assert main(["sheet", "--save", SAMPLES[0]]) == 0
+    assert main(["sheet", "--save", SAVE5]) == 0
     out = capsys.readouterr().out
     assert out.startswith("---\ntype: snapshot") and "`Skyrim.esm:01DBFC`" in out
 
@@ -179,7 +310,7 @@ def test_cli_sheet_stdout_out_and_names(tmp_path, capsys):
     names.write_text(json.dumps({"skyrim.esm:01dbfc": {"edid": "Q1", "name": "A Named Quest",
                                                        "type": "QUST"}}))
     dest = tmp_path / "sheet.md"
-    assert main(["sheet", "--save", SAMPLES[0], "--out", str(dest), "--names", str(names)]) == 0
+    assert main(["sheet", "--save", SAVE5, "--out", str(dest), "--names", str(names)]) == 0
     assert capsys.readouterr().out == ""
     text = dest.read_text(encoding="utf-8")
     assert "| A Named Quest | 100 |" in text and "`Skyrim.esm:01DBFC`" not in text
@@ -191,7 +322,7 @@ def test_cli_sheet_stdout_out_and_names(tmp_path, capsys):
 def test_cli_sheet_bad_names_file(tmp_path, capsys):
     bad = tmp_path / "bad.json"
     bad.write_text("[]")
-    assert main(["sheet", "--save", SAMPLES[0], "--names", str(bad)]) == 2
+    assert main(["sheet", "--save", SAVE5, "--names", str(bad)]) == 2
     assert "names file must be a JSON object" in capsys.readouterr().err
 
 
@@ -457,7 +588,7 @@ def test_sample_sheet_with_real_names_file():
     names_path = os.path.join(os.path.dirname(__file__), "..", "names.json")
     if not os.path.exists(names_path):
         pytest.skip("no names.json present")
-    with open(SAMPLES[0], "rb") as f:
+    with open(SAVE5, "rb") as f:
         text = build_sheet(parse_save(f.read()), "x.ess", NameBook.load(names_path))
 
     def section(title):

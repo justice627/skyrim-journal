@@ -10,13 +10,18 @@ from skyrim_journal.parser.globaldata import (parse_global_variables, parse_misc
 from skyrim_journal.parser.player import parse_player_base
 from skyrim_journal.parser.refs import describe_form_id
 
-SAMPLES = sorted(glob.glob(os.path.join(os.path.dirname(__file__), "..", "samples", "*.ess")))
-pytestmark = pytest.mark.skipif(not SAMPLES, reason="no real sample save present")
+def _sample(prefix):
+    found = sorted(glob.glob(os.path.join(os.path.dirname(__file__), "..", "samples", prefix + "*.ess")))
+    return found[0] if found else None
+
+
+SAVE5, SAVE6 = _sample("Save5_"), _sample("Save6_")
+pytestmark = pytest.mark.skipif(SAVE5 is None, reason="no real sample save (Save5_*.ess) present")
 
 
 @pytest.fixture(scope="module")
 def parsed():
-    with open(SAMPLES[0], "rb") as f:
+    with open(SAVE5, "rb") as f:
         return parse_save(f.read())
 
 
@@ -57,6 +62,6 @@ def test_form_id_description():
 
 
 def test_cli_sections(capsys):
-    assert main(["inspect", "--save", SAMPLES[0]]) == 0
+    assert main(["inspect", "--save", SAVE5]) == 0
     out = capsys.readouterr().out
     assert "== Player ==" in out and "Plays-With-Scales" in out and "== Misc stats (108) ==" in out

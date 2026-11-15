@@ -3,13 +3,15 @@ from __future__ import annotations
 
 import os
 import re
+import struct
 from collections import defaultdict
 
 from .names import NameBook, NameEntry, normalize_key
 from .parser import ParsedSave
 from .parser.globaldata import (KNOWN_GLOBALS, parse_global_variables, parse_misc_stats,
                                 parse_player_location)
-from .parser.playerstate import SKILL_NAMES, PlayerState, parse_player_state
+from .parser.playerstate import (CARRYABLE_TYPES, SKILL_NAMES, PlayerState,
+                                 parse_player_state)
 from .parser.questtext import QuestInstances, parse_quest_instances
 from .parser.quests import QuestProgress, parse_quests
 from .parser.refs import describe, describe_form_id
@@ -79,6 +81,40 @@ def _chains(names: NameBook, tree_perks: tuple[str, ...]) -> list[list[str]]:
             seen.add(normalize_key(n))
         chains.append(chain)
     return chains
+
+
+def _block_levels_note(state, cur) -> str:
+    blk = state.skill_block
+    if not blk:
+        return "the block could not be matched to this save"
+    lag = [n for i, n in enumerate(SKILL_NAMES) if round(blk[i][0]) != cur[n]]
+    if not lag:
+        return "the block's levels match the Current column"
+    return ("the block's own level field lags the Current column for " + ", ".join(lag)
+            + "; the Current column is used")
+
+
+def _item_details(it) -> str:
+    """Only what the data supports: worn (flag 0x16), the raw value of extra type 0x27 (a float
+    whose meaning is not verified) and a mark when an undecoded extra type was skipped."""
+    out = []
+    if it.worn:
+        out.append("worn")
+    raw = it.payload(0x27)
+    if raw is not None and len(raw) == 4:
+        out.append(f"extra 0x27 = {struct.unpack('<f', raw)[0]:.1f} (float, meaning unverified)")
+    if it.details_incomplete:
+        out.append("details not decoded")
+    return ", ".join(out)
+
+
+def _item_kind(b, names: NameBook):
+    """Form id -> True / False / None: is the form a carryable record type according to the
+    names file (None when the file does not know the form or its type)."""
+    def kind(fid: int) -> bool | None:
+        e = names.lookup(describe_form_id(fid, b.plugins, b.light_plugins))
+        return None if e is None or not e.type else e.type in CARRYABLE_TYPES
+    return kind
 
 
 def _perk_section(perks: list[tuple[int, int]], b, names: NameBook) -> list[str]:
@@ -443,7 +479,8 @@ def build_sheet(parsed: ParsedSave, save_file_name: str, names: NameBook | None 
     gt = {n: gv[i] for i, n in KNOWN_GLOBALS.items() if i in gv}
     loc = parse_player_location(b)
     pinfo = parsed.player_info()
-    state: PlayerState | None = parse_player_state(b, ctype, h.cur_exp, h.lvlup_exp)
+    state: PlayerState | None = parse_player_state(b, ctype, h.cur_exp, h.lvlup_exp,
+                                                   _item_kind(b, names))
     quests = parse_quests(b, ctype)
 
     save_date = (h.filetime_iso or "")[:10] or "unknown date"
@@ -492,7 +529,7 @@ def build_sheet(parsed: ParsedSave, save_file_name: str, names: NameBook | None 
                  + (f" (total gained {_num(total)}; the save's Skill Increases counter is "
                     f"{stat['Skill Increases']})" if "Skill Increases" in stat else "")
                  + ". XP is read as xp / threshold from the player skill block (layout inferred; "
-                   "the block's levels match the Current column).")
+                   + _block_levels_note(state, cur) + ").")
         L.append("")
         blk = state.skill_block
         rows = []
@@ -539,15 +576,22 @@ def build_sheet(parsed: ParsedSave, save_file_name: str, names: NameBook | None 
             L += ["Only gold and lockpicks were recovered; the rest of the inventory could not be "
                   "walked reliably in this save.", ""]
         else:
+            nbad = sum(1 for i in inv if i.details_incomplete)
             L += [f"Full inventory: {len(inv)} entries, {sum(i.count for i in inv)} items in total. "
-                  "Worn is set for entries that carry extra-data flag 0x16, inferred to mean "
-                  "worn.", ""]
+                  "Worn is shown for entries that carry extra-data flag 0x16, inferred to mean "
+                  "worn (it changes with the outfit between saves).", ""]
+            if nbad:
+                L += [f"{nbad} of {len(inv)} entries had extra data of a type that is not decoded "
+                      "(marked in the Details column); their item and count are reliable, their "
+                      "details are not.", ""]
+            else:
+                L += ["All extra data of every entry was decoded.", ""]
             rows = []
             for it in inv:
                 d = describe_form_id(it.form_id, b.plugins, b.light_plugins)
-                rows.append([label(d), it.count, "yes" if it.worn else ""])
+                rows.append([label(d), it.count, _item_details(it)])
             L += ["<details><summary>Inventory</summary>", ""]
-            L += _table(["Item", "Count", "Worn"], rows, {1})
+            L += _table(["Item", "Count", "Details"], rows, {1})
             L += ["", "</details>", ""]
 
     # --- Quests -----------------------------------------------------------------------

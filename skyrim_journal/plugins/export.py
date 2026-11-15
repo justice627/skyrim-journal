@@ -19,7 +19,7 @@ from ..parser import SaveParseError
 from .reader import PluginError, scan_plugin
 from .strings import DirIndex, StringsFinder
 
-TOOL_VERSION = "1.3.0"
+TOOL_VERSION = "1.4.0"
 BASE_MASTERS = ["Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm",
                 "Dragonborn.esm"]
 PLUGIN_EXTS = (".esm", ".esp", ".esl")

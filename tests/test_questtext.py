@@ -14,8 +14,13 @@ from skyrim_journal.parser.refs import describe
 from skyrim_journal.sheet import _quest_section
 from skyrim_journal.texttags import render_tags
 
-SAMPLES = sorted(glob.glob(os.path.join(os.path.dirname(__file__), "..", "samples", "*.ess")))
-needs_sample = pytest.mark.skipif(not SAMPLES, reason="no real sample save present")
+def _sample(prefix):
+    found = sorted(glob.glob(os.path.join(os.path.dirname(__file__), "..", "samples", prefix + "*.ess")))
+    return found[0] if found else None
+
+
+SAVE5, SAVE6 = _sample("Save5_"), _sample("Save6_")
+needs_sample = pytest.mark.skipif(SAVE5 is None, reason="no real sample save (Save5_*.ess) present")
 NAMES_PATH = os.path.join(os.path.dirname(__file__), "..", "names.json")
 
 u32 = lambda v: struct.pack("<I", v)  # noqa: E731
@@ -194,7 +199,7 @@ def test_sheet_alias_fallbacks_are_never_guessed():
 
 @pytest.fixture(scope="module")
 def parsed():
-    with open(SAMPLES[0], "rb") as f:
+    with open(SAVE5, "rb") as f:
         return parse_save(f.read())
 
 
@@ -249,7 +254,7 @@ def test_sample_sheet_has_globals_and_aliases_filled():
     if not os.path.exists(NAMES_PATH):
         pytest.skip("no names.json present")
     from skyrim_journal.sheet import build_sheet
-    text = build_sheet(parse_save(open(SAMPLES[0], "rb").read()), "x.ess", NameBook.load(NAMES_PATH))
+    text = build_sheet(parse_save(open(SAVE5, "rb").read()), "x.ess", NameBook.load(NAMES_PATH))
     assert "Collect Bear Pelts for Jenassa (0/29)" in text
     assert "Find Shahvee's Amulet of Zenithar inside Winter War" in text
     assert "Kill the bandit leader located at Lost Knife Hideout" in text

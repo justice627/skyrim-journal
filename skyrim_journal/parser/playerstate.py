@@ -8,11 +8,15 @@ Everything here was found empirically on one real Skyrim SE save and cross-check
   the three attributes sum to 300 + 10 per level gained. These are the saved base values,
   i.e. they include level-ups but not temporary buffs.
 * Skill block: ``f32 cur_exp, f32 lvlup_exp`` (equal to the header values), ``u32 18``, then
-  18 x (f32 level, f32 xp, f32 threshold, u32 0). Levels equal the actor-value list.
+  18 x (f32 level, f32 xp, f32 threshold, u32 0). Levels equal the actor-value list in save 5
+  but can lag it in save 6 (see ``find_skill_block``).
 * Inventory: vsval count, then per item RefID(3) + i32 count + vsval list-count, each list =
   vsval extra-count + (u8 type + type-specific payload). The extra-data payload sizes below
-  were inferred from one save: a walk with them lands exactly on the end of all 38 items.
-  An unknown extra type makes the walk fail, in which case nothing is returned.
+  were inferred from two saves of one character: a walk with them lands exactly on the end of
+  all 38 (save 5) and 49 (save 6) items, and what follows the list is the same structure in
+  both. An extra type with an unknown size does not abort the walk: the walker resynchronises
+  (see ``_walk_items``) and flags the item ``details_incomplete``. Only if that fails too is
+  nothing returned.
 * Perk-shaped list: vsval count + count x (RefID(3), u8 rank). Matches a unique list of 102
   entries; its identification as the perk list is NOT confirmed by names.
 """
@@ -22,6 +26,7 @@ import math
 import re
 import struct
 from dataclasses import dataclass, field
+from typing import Callable
 
 from .body import PLAYER_REFR, SaveBody, payload_decompress
 from .refs import read_refid
@@ -32,8 +37,15 @@ SKILL_NAMES = ["OneHanded", "TwoHanded", "Marksman", "Block", "Smithing", "Heavy
                "Enchanting"]
 FIRST_SKILL_AV = 6
 ATTRIBUTE_AVS = {"Health": 24, "Magicka": 25, "Stamina": 26}
+MAX_BLOCK_LEVEL_LAG = 10
 GOLD, LOCKPICK = 0x0000000F, 0x0000000A
 EXTRA_WORN = 0x16
+CARRYABLE_TYPES = frozenset({"WEAP", "ARMO", "AMMO", "ALCH", "INGR", "BOOK", "MISC", "KEYM",
+                             "SLGM", "SCRL", "LIGH"})
+
+# Optional oracle: form id -> True (known carryable record type), False (known to be something
+# else, e.g. an NPC or a cell) or None (not known).
+ItemKind = Callable[[int], "bool | None"]
 
 
 class _Bad(Exception):
@@ -68,7 +80,9 @@ def _vs_list(item_size):
 EXTRA_SIZES = {
     0x16: _fixed(0),     # flag only; present on 7 weapon/armour-range items (worn, inferred)
     0x1C: _fixed(3),     # RefID
-    0x24: _fixed(2),     # u16 (equals the stack count on the 39-stack)
+    0x24: _fixed(2),     # u16 equal to the stack count (39 and 44 arrows, two saves)
+    0x27: _fixed(4),     # f32 (224.47 in save 6). Only size 4 walks all 49 items; 12 comes close
+                         # but fails. Probably a charge value, unconfirmed (item not in names)
     0x88: _vs_list(7),   # vsval n x (RefID, u32): looks like quest alias instances
     0x8E: _fixed(3),     # RefID
     0x99: _fixed(10),    # 10 opaque bytes (zeros + RefID + i32 in the sample)
@@ -81,10 +95,18 @@ class InventoryItem:
     form_id: int
     count: int
     extra_types: list[int]
+    payloads: list[bytes] = field(default_factory=list)   # raw payload per decoded extra
+    details_incomplete: bool = False   # an unknown extra type was skipped by resynchronising
 
     @property
     def worn(self) -> bool:
         return EXTRA_WORN in self.extra_types
+
+    def payload(self, extra_type: int) -> bytes | None:
+        for t, p in zip(self.extra_types, self.payloads):
+            if t == extra_type:
+                return p
+        return None
 
 
 @dataclass
@@ -164,60 +186,216 @@ def find_skill_block(data: bytes, cur_exp: float, lvlup_exp: float,
     if len(hits) != 1:
         return None
     rows = hits[0]
-    if levels and any(abs(rows[i][0] - levels[n]) > 1e-3 for i, n in enumerate(SKILL_NAMES)):
-        return None   # disagrees with the actor-value list: do not trust
+    # The block's level field equals the actor value in save 5 but lags it in save 6 (by 1-3
+    # levels on 5 skills, the ones that levelled since save 5; xp and threshold are current).
+    # A block that is ahead of the actor values, or lags by more than MAX_BLOCK_LEVEL_LAG, is
+    # not trusted.
+    if levels and any(not -1e-3 <= levels[n] - rows[i][0] <= MAX_BLOCK_LEVEL_LAG
+                      for i, n in enumerate(SKILL_NAMES)):
+        return None
     return rows
 
 
-def _walk_items(data: bytes, k: int, n: int, form_ids: list[int]) -> tuple[list[InventoryItem], int]:
-    items = []
-    for _ in range(n):
-        if k + 8 > len(data):
-            raise _Bad("item past end")
-        fid = read_refid(data[k:k + 3], form_ids)
-        (cnt,) = struct.unpack_from("<i", data, k + 3)
-        if fid is None or cnt <= 0:
+class _Unknown(Exception):
+    """An extra type with no known size; ``k`` is the position just after the type byte."""
+
+    def __init__(self, item: InventoryItem, k: int, t: int):
+        super().__init__(f"unknown extra type 0x{t:02X}")
+        self.item, self.k, self.type = item, k, t
+
+
+MAX_RESYNC_SKIP = 64     # longest unknown payload (plus any later extras of that item) searched
+MAX_RESYNC_DEPTH = 4     # unknown-type items tolerated in one list
+MIN_ITEMS_BEFORE_NESTED = 3   # a list that has not yet walked 3 items gets no nested resync
+
+
+# What follows the inventory list in the player record (both saves): RefID(3), u32 2, then a
+# u16-length string "BShkbAnimationGraph". Once an extra type has been skipped the walk may
+# line up on a wrong offset and keep parsing garbage that happens to look like items, so a
+# resynchronised walk must additionally end exactly in front of this structure. If another
+# game version lays it out differently, resynchronisation fails and the caller falls back.
+POST_LIST_MARKER = b"\x13\x00BShkbAnimationGraph"
+POST_LIST_GAP = 7        # RefID(3) + u32 between the end of the list and the length prefix
+
+
+def _list_end_anchored(data: bytes, end: int) -> bool:
+    return data.startswith(POST_LIST_MARKER, end + POST_LIST_GAP)
+
+
+def _plausible_head(data: bytes, k: int, form_ids: list[int], plugin_count: int | None,
+                    kind: ItemKind | None = None) -> bool:
+    """Cheap test of the 7 bytes that start an item: resolvable RefID, positive count."""
+    if k + 8 > len(data):
+        return False
+    fid = read_refid(data[k:k + 3], form_ids)
+    if fid is None or int.from_bytes(data[k + 3:k + 7], "little", signed=True) <= 0:
+        return False
+    top = fid >> 24
+    if plugin_count is not None and plugin_count <= top < 0xFE:
+        return False
+    return kind is None or kind(fid) is not False
+
+
+def _walk_one(data: bytes, k: int, form_ids: list[int], plugin_count: int | None,
+              kind: ItemKind | None = None) -> tuple[InventoryItem, int]:
+    if k + 8 > len(data):
+        raise _Bad("item past end")
+    fid = read_refid(data[k:k + 3], form_ids)
+    (cnt,) = struct.unpack_from("<i", data, k + 3)
+    if fid is None or cnt <= 0:
+        raise _Bad("bad item")
+    top = fid >> 24
+    if plugin_count is not None and top >= plugin_count and top < 0xFE:
+        raise _Bad("form id from a plugin not in the load order")
+    if kind is not None and kind(fid) is False:
+        raise _Bad("form is not a carryable record type")
+    k += 7
+    item = InventoryItem(fid, cnt, [])
+    nl, k = _vsval(data, k)
+    for _ in range(nl):
+        ne, k = _vsval(data, k)
+        for _ in range(ne):
+            if k >= len(data):
+                raise _Bad("extra past end")
+            t = data[k]
+            k += 1
+            size = EXTRA_SIZES.get(t)
+            if size is None:
+                item.details_incomplete = True
+                raise _Unknown(item, k, t)
+            sz = size(data, k)
+            if k + sz > len(data):
+                raise _Bad("extra overrun")
+            item.extra_types.append(t)
+            item.payloads.append(data[k:k + sz])
+            k += sz
+    return item, k
+
+
+def _walk_items(data: bytes, k: int, n: int, form_ids: list[int],
+                plugin_count: int | None = None, allowed: int = MAX_RESYNC_DEPTH,
+                _cache: dict | None = None, _seen: int = 0
+                ) -> tuple[list[InventoryItem], int | None]:
+    """Walk ``n`` items from ``k``; return (items, end position). Raises ``_Bad`` on failure.
+
+    An extra type of unknown size is handled by resynchronisation: the offsets within
+    ``MAX_RESYNC_SKIP`` bytes of the unknown type are tried as the start of the next item, and
+    one is accepted only when *all* the remaining items walk cleanly from it (every RefID
+    resolves and is from a loaded plugin, positive counts, known extra types or, while
+    ``allowed`` lasts, further resynchronisation). The affected item is kept with
+    ``details_incomplete`` set. Among the offsets that work the one skipping the fewest
+    items wins, then the one with the most items the ``kind`` oracle knows to be carryable;
+    if none works, or the best ones disagree, the walk fails. When the unknown type is in the last item nothing can validate the end, so
+    the end position is ``None``. ``_cache`` memoises item parses and sub-walks."""
+    if _cache is None:
+        _cache = {}
+    key = (k, n, allowed, _seen >= MIN_ITEMS_BEFORE_NESTED)
+    memo = _cache.setdefault("walk", {})
+    if key in memo:
+        if memo[key] is None:
+            raise _Bad("memoised failure")
+        return memo[key]
+    try:
+        res = _walk_items_uncached(data, k, n, form_ids, plugin_count, allowed, _cache, _seen)
+    except _Bad:
+        memo[key] = None
+        raise
+    memo[key] = res
+    return res
+
+
+def _walk_items_uncached(data, k, n, form_ids, plugin_count, allowed, _cache, _seen):
+    one = _cache.setdefault("one", {})
+    kind = _cache.get("kind")
+    items: list[InventoryItem] = []
+    for i in range(n):
+        hit = one.get(k)
+        if hit is None:
+            try:
+                hit = one[k] = _walk_one(data, k, form_ids, plugin_count, kind)
+            except _Unknown as ex:
+                hit = one[k] = (ex.item, ex.k, ex.type)
+            except (_Bad, struct.error):
+                hit = one[k] = False
+        if hit is False:
             raise _Bad("bad item")
-        k += 7
-        nl, k = _vsval(data, k)
-        types: list[int] = []
-        for _ in range(nl):
-            ne, k = _vsval(data, k)
-            for _ in range(ne):
-                if k >= len(data):
-                    raise _Bad("extra past end")
-                t = data[k]
-                k += 1
-                size = EXTRA_SIZES.get(t)
-                if size is None:
-                    raise _Bad(f"unknown extra type 0x{t:02X}")
-                k += size(data, k)
-                types.append(t)
-        if k > len(data):
-            raise _Bad("extra overrun")
-        items.append(InventoryItem(fid, cnt, types))
+        if len(hit) == 2:
+            item, k = hit
+            items.append(item)
+            continue
+        # unknown extra type
+        if allowed <= 0:
+            raise _Bad("too many unknown extra types")
+        item, after_type, _t = hit
+        items.append(item)
+        rest = n - i - 1
+        if rest == 0:
+            return items, None
+        # Every offset from which the rest of the list walks and ends in front of the post-list
+        # marker is a candidate. A wrong alignment re-segments real items into garbage that
+        # needs more skipped types than the true one, so the candidate with the fewest skipped
+        # items wins, ties going to the nearest offset. Further unknown types in the rest are
+        # allowed only once the list has walked a few items, so that garbage starts do not
+        # search deeply.
+        left = allowed - 1 if _seen + i >= MIN_ITEMS_BEFORE_NESTED else 0
+        cands: list[tuple[tuple[int, int], tuple[list[InventoryItem], int | None]]] = []
+        for e in range(after_type, min(after_type + MAX_RESYNC_SKIP, len(data)) + 1):
+            if not _plausible_head(data, e, form_ids, plugin_count, kind):
+                continue
+            try:
+                tail = _walk_items(data, e, rest, form_ids, plugin_count, left,
+                                   _cache, _seen + i + 1)
+            except (_Bad, struct.error):
+                continue
+            if tail[1] is not None and not _list_end_anchored(data, tail[1]):
+                continue
+            cands.append(((sum(x.details_incomplete for x in tail[0]),
+                           -sum(1 for x in tail[0] if kind is not None and kind(x.form_id))),
+                          tail))
+        if not cands:
+            raise _Bad("cannot resynchronise after unknown extra type")
+        top = min(c[0] for c in cands)
+        tails = [c[1] for c in cands if c[0] == top]
+        if any(t[0] != tails[0][0] for t in tails[1:]):
+            raise _Bad("ambiguous resynchronisation")
+        return items + tails[0][0], tails[0][1]
     return items, k
 
 
-def find_inventory(data: bytes, form_ids: list[int], max_scan: int = 16384
+def find_inventory(data: bytes, form_ids: list[int], max_scan: int = 65536,
+                   plugin_count: int | None = None, item_kind: ItemKind | None = None
                    ) -> list[InventoryItem] | None:
-    """Find the vsval-counted inventory list near the start of the player ACHR payload.
+    """Find the vsval-counted inventory list in the player ACHR payload (no fixed offset: every
+    position of the first ``max_scan`` bytes is tried as the list's count).
 
-    Accepted when the full walk of ``count`` items succeeds and either contains gold or has
-    at least 8 items; the longest such candidate wins."""
+    A candidate is accepted when the walk of exactly ``count`` items succeeds (with
+    resynchronisation over unknown extra types, see ``_walk_items``) and it either contains
+    gold, or has at least 8 items and no skipped extras. Candidates with skipped extras must
+    contain gold and have no more than half of their items affected. The longest accepted
+    candidate wins (a start inside the real list yields a shorter one), ties going to the one
+    with fewer incomplete items."""
     best: list[InventoryItem] | None = None
+    best_key: tuple[int, int] | None = None
+    cache: dict = {"kind": item_kind}
     for x in range(0, min(len(data), max_scan)):
         try:
             n, k0 = _vsval(data, x)
-            if n < 1 or n > 2000:
+            if n < 1 or n > 2000 or not _plausible_head(data, k0, form_ids, plugin_count,
+                                                                  item_kind):
                 continue
-            items, _ = _walk_items(data, k0, n, form_ids)
+            items, _ = _walk_items(data, k0, n, form_ids, plugin_count, MAX_RESYNC_DEPTH, cache)
         except (_Bad, struct.error):
             continue
-        if not (any(i.form_id == GOLD for i in items) or n >= 8):
+        has_gold = any(i.form_id == GOLD for i in items)
+        bad = sum(1 for i in items if i.details_incomplete)
+        if bad:
+            if not has_gold or bad * 2 > len(items):
+                continue
+        elif not (has_gold or n >= 8):
             continue
-        if best is None or len(items) > len(best):
-            best = items
+        key = (len(items), -bad)
+        if best_key is None or key > best_key:
+            best, best_key = items, key
     return best
 
 
@@ -263,7 +441,8 @@ def find_perk_list(data: bytes, form_ids: list[int], plugin_count: int) -> list[
 
 
 def parse_player_state(body: SaveBody, compression_type: int, cur_exp: float,
-                       lvlup_exp: float) -> PlayerState | None:
+                       lvlup_exp: float, item_kind: ItemKind | None = None
+                       ) -> PlayerState | None:
     cf = next((c for c in body.change_forms if c.form_type == 1 and c.form_id == PLAYER_REFR), None)
     if cf is None:
         return None
@@ -273,7 +452,8 @@ def parse_player_state(body: SaveBody, compression_type: int, cur_exp: float,
     st = PlayerState()
     st.actor_values = find_actor_values(data)
     st.skill_block = find_skill_block(data, cur_exp, lvlup_exp, st.skills or None)
-    st.inventory = find_inventory(data, body.form_id_array)
+    st.inventory = find_inventory(data, body.form_id_array, plugin_count=len(body.plugins),
+                                  item_kind=item_kind)
     if st.inventory is None:
         part = find_gold_lockpicks(data, body.form_id_array)
         if part:

@@ -87,7 +87,7 @@ def test_full_export(tmp_path):
 
     j = run(tmp_path, ["--data", str(d)])
     meta = j.pop("_meta")
-    assert j.pop("_perk_trees") == {} and meta["tool_version"] == "1.3.0"
+    assert j.pop("_perk_trees") == {} and meta["tool_version"] == "1.4.0"
     # overridden; QUST entries carry the quest fields (none of the subrecords exist here)
     assert j["Master.esm:000800"] == {"edid": "MQ101", "name": "Unbound II", "type": "QUST",
                                       "objectives": 0, "complete_stages": [], "fail_stages": []}
@@ -349,4 +349,4 @@ def test_quest_aliases_exported(tmp_path):
                                             "12": {"name": "Boss", "kind": "ref"}}
     assert j["A.esp:000800"]["objective_text"] == {"10": "Kill <Alias=Boss>"}
     assert "aliases" not in j["A.esp:000801"]
-    assert j["_meta"]["tool_version"] == "1.3.0"
+    assert j["_meta"]["tool_version"] == "1.4.0"
